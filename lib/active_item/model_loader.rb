@@ -2,7 +2,7 @@
 
 require 'active_support/inflector'
 
-module DynamoRecord
+module ActiveItem
   module ModelLoader
     def safe_constantize_model(class_name)
       return class_name.constantize if Object.const_defined?(class_name)

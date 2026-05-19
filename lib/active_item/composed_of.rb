@@ -2,7 +2,7 @@
 
 require 'active_support/concern'
 
-module DynamoRecord
+module ActiveItem
   module ComposedOf
     extend ActiveSupport::Concern
 

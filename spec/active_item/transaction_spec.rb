@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe DynamoRecord::Transaction do
+RSpec.describe ActiveItem::Transaction do
   let(:fake_dynamo) { @fake_dynamo }
 
   let(:model_class) do
-    Class.new(DynamoRecord::Base) do
+    Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-things'
       attr_accessor :name
 
@@ -18,7 +18,7 @@ RSpec.describe DynamoRecord::Transaction do
 
   describe '#put' do
     it 'adds a put operation' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       record = model_class.new(name: 'Widget')
       txn.put(record)
       expect(txn.operations.length).to eq(1)
@@ -26,7 +26,7 @@ RSpec.describe DynamoRecord::Transaction do
     end
 
     it 'assigns id and timestamps' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       record = model_class.new(name: 'Widget')
       txn.put(record)
       expect(record.id).not_to be_nil
@@ -36,7 +36,7 @@ RSpec.describe DynamoRecord::Transaction do
 
   describe '#execute!' do
     it 'calls transact_write_items' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       record = model_class.new(name: 'Widget')
       txn.put(record)
       txn.execute!
@@ -44,7 +44,7 @@ RSpec.describe DynamoRecord::Transaction do
     end
 
     it 'marks put records as persisted' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       record = model_class.new(name: 'Widget')
       txn.put(record)
       txn.execute!
@@ -52,13 +52,13 @@ RSpec.describe DynamoRecord::Transaction do
     end
 
     it 'raises TransactionError when exceeding 100 items' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       101.times { txn.put(model_class.new(name: 'x')) }
-      expect { txn.execute! }.to raise_error(DynamoRecord::TransactionError, /limited to 100/)
+      expect { txn.execute! }.to raise_error(ActiveItem::TransactionError, /limited to 100/)
     end
 
     it 'does nothing when empty' do
-      txn = DynamoRecord::Transaction.new
+      txn = ActiveItem::Transaction.new
       txn.execute!
       expect(fake_dynamo.calls).to be_empty
     end

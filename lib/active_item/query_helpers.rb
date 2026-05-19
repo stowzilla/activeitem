@@ -2,12 +2,12 @@
 
 require_relative 'relation'
 
-module DynamoRecord
+module ActiveItem
   module QueryHelpers
 
     def find(id)
       record = get({ primary_key.to_s => id })
-      raise DynamoRecord::RecordNotFound, "Couldn't find #{name} with '#{primary_key}'=#{id}" unless record
+      raise ActiveItem::RecordNotFound, "Couldn't find #{name} with '#{primary_key}'=#{id}" unless record
       instantiate(record)
     end
 
@@ -54,7 +54,7 @@ module DynamoRecord
 
       results
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
                                                 operation: 'BatchGetItem', original_error: e)
     end
 
@@ -70,8 +70,8 @@ module DynamoRecord
     #   items = 30.times.map { |i| InventoryItem.new(name: "Item #{i}", ...) }
     #   InventoryItem.batch_write(items)
     #
-    # @param records [Array<DynamoRecord::Base>] Records to write
-    # @return [Array<DynamoRecord::Base>] The records with IDs and timestamps assigned
+    # @param records [Array<ActiveItem::Base>] Records to write
+    # @return [Array<ActiveItem::Base>] The records with IDs and timestamps assigned
     def batch_write(records)
       return [] if records.empty?
 
@@ -115,7 +115,7 @@ module DynamoRecord
       records.each { |r| r.instance_variable_set(:@new_record, false) }
       records
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
                                                 operation: 'BatchWriteItem', original_error: e)
     end
 
@@ -304,7 +304,7 @@ module DynamoRecord
     # This enables automatic index detection in where() queries
     #
     # @example
-    #   class Pickup < DynamoRecord::Base
+    #   class Pickup < ActiveItem::Base
     #     indexes(
     #       'CustomerIndex' => { partition_key: 'customer_id' },
     #       'StatusIndex' => { partition_key: 'status', sort_key: 'pickup_date' },
@@ -405,7 +405,7 @@ module DynamoRecord
     # Note: Attribute names are converted from Ruby snake_case to DynamoDB camelCase
     #
     # @param attr [String, Symbol] Attribute name (can include dots for nested)
-    # @param val [Object] Value to match (can be Hash for nested, Array for IN, Range for BETWEEN, nil for NOT EXISTS, or a DynamoRecord model)
+    # @param val [Object] Value to match (can be Hash for nested, Array for IN, Range for BETWEEN, nil for NOT EXISTS, or a ActiveItem model)
     # @param idx [Integer] Index for unique placeholder names
     # @param ilike [Boolean] If true, use case-insensitive contains() matching
     # @return [Array<String, Hash, Hash>] [expression, attribute_names, attribute_values]
@@ -426,10 +426,10 @@ module DynamoRecord
         return build_ilike_condition(dynamo_attr, val, idx)
       end
 
-      # Handle DynamoRecord model objects - extract primary key value
+      # Handle ActiveItem model objects - extract primary key value
       # This allows queries like: Container.where(parent_container: some_container)
       # Also converts association name to foreign key (parent_container -> parent_container_id)
-      if val.is_a?(DynamoRecord::Base)
+      if val.is_a?(ActiveItem::Base)
         val = val.send(val.class.primary_key)
         # Convert association name to foreign key if it doesn't already end with _id
         attr_str = "#{attr_str}_id" unless attr_str.end_with?('_id')

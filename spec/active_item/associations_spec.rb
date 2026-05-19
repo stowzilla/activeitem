@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe DynamoRecord::Associations do
+RSpec.describe ActiveItem::Associations do
   let(:fake_dynamo) { @fake_dynamo }
 
   let(:author_class) do
-    Class.new(DynamoRecord::Base) do
+    Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-authors'
       attr_accessor :name
 
@@ -18,7 +18,7 @@ RSpec.describe DynamoRecord::Associations do
 
   let(:book_class) do
     author_klass = author_class
-    Class.new(DynamoRecord::Base) do
+    Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-books'
       attr_accessor :title, :author_id
 
@@ -55,7 +55,7 @@ RSpec.describe DynamoRecord::Associations do
 
   describe 'has_many' do
     let(:parent_class) do
-      Class.new(DynamoRecord::Base) do
+      Class.new(ActiveItem::Base) do
         self.table_name = 'test-dev-parents'
         attr_accessor :name
 
@@ -68,7 +68,7 @@ RSpec.describe DynamoRecord::Associations do
     end
 
     it 'returns a Relation' do
-      stub_const('Child', Class.new(DynamoRecord::Base) { self.table_name = 'test-dev-children' })
+      stub_const('Child', Class.new(ActiveItem::Base) { self.table_name = 'test-dev-children' })
       parent = parent_class.allocate
       parent.instance_variable_set(:@id, 'p-1')
       parent.instance_variable_set(:@new_record, false)
@@ -78,7 +78,7 @@ RSpec.describe DynamoRecord::Associations do
       parent.instance_variable_set(:@_preloaded_associations, {})
 
       result = parent.children
-      expect(result).to be_a(DynamoRecord::Relation)
+      expect(result).to be_a(ActiveItem::Relation)
     end
   end
 end

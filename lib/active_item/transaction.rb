@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module DynamoRecord
+module ActiveItem
   class Transaction
     MAX_ITEMS = 100
 

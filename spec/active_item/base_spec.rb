@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe DynamoRecord::Base do
+RSpec.describe ActiveItem::Base do
   let(:fake_dynamo) { @fake_dynamo }
 
   before do
-    DynamoRecord.configure do |config|
+    ActiveItem.configure do |config|
       config.table_prefix = 'test'
       config.environment = 'dev'
     end
@@ -14,7 +14,7 @@ RSpec.describe DynamoRecord::Base do
 
   # Define a test model
   let(:model_class) do
-    Class.new(DynamoRecord::Base) do
+    Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-users'
 
       attr_accessor :email, :name, :status
@@ -31,7 +31,7 @@ RSpec.describe DynamoRecord::Base do
     end
 
     it 'generates table name from configuration' do
-      klass = Class.new(DynamoRecord::Base) do
+      klass = Class.new(ActiveItem::Base) do
         def self.name
           'BlogPost'
         end
@@ -134,7 +134,7 @@ RSpec.describe DynamoRecord::Base do
     end
 
     it 'raises RecordNotFound when not found' do
-      expect { model_class.find('nonexistent') }.to raise_error(DynamoRecord::RecordNotFound)
+      expect { model_class.find('nonexistent') }.to raise_error(ActiveItem::RecordNotFound)
     end
   end
 
@@ -190,7 +190,7 @@ RSpec.describe DynamoRecord::Base do
 
   describe 'custom primary key' do
     let(:custom_pk_class) do
-      Class.new(DynamoRecord::Base) do
+      Class.new(ActiveItem::Base) do
         self.table_name = 'test-dev-widgets'
         self.primary_key = :widget_id
 

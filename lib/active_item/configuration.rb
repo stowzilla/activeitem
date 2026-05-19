@@ -2,7 +2,7 @@
 
 require 'logger'
 
-module DynamoRecord
+module ActiveItem
   class Configuration
     attr_accessor :logger, :table_prefix, :environment
 

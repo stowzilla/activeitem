@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module DynamoRecord
+module ActiveItem
   # Minimal logger that discards all output. Used as default when no logger configured.
   class NullLogger
     def info(*); end
@@ -13,7 +13,7 @@ module DynamoRecord
     private
 
     def dynamo_logger
-      DynamoRecord.logger
+      ActiveItem.logger
     end
   end
 end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'ostruct'
-require 'dynamorecord'
+require 'activeitem'
 
 # Stub the DynamoDB client for unit tests
 class FakeDynamoClient

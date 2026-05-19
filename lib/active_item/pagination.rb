@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module DynamoRecord
+module ActiveItem
   module Pagination
     DEFAULT_PER_PAGE = 25
     MAX_PER_PAGE = 100

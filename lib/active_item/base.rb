@@ -9,7 +9,7 @@ require 'active_support/concern'
 require 'active_model'
 require 'securerandom'
 
-module DynamoRecord
+module ActiveItem
   class Base
     include ActiveModel::Validations
     include ActiveSupport::Callbacks
@@ -17,7 +17,7 @@ module DynamoRecord
     include Logging
 
     def self.const_missing(name)
-      DynamoRecord.const_defined?(name) ? DynamoRecord.const_get(name) : super
+      ActiveItem.const_defined?(name) ? ActiveItem.const_get(name) : super
     end
 
     prepend ComposedOf
@@ -258,7 +258,7 @@ module DynamoRecord
 
       def default_table_name
         raise "Cannot generate table name for anonymous class" unless name
-        DynamoRecord.configuration.table_name_for(name)
+        ActiveItem.configuration.table_name_for(name)
       end
 
       def inherited(subclass)
@@ -511,7 +511,7 @@ module DynamoRecord
       errors.add(:id, "already exists")
       false
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: self.class.name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                                 operation: 'PutItem', original_error: e)
     end
 
@@ -575,7 +575,7 @@ module DynamoRecord
 
       dynamodb.update_item(params)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: self.class.name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                                 operation: 'UpdateItem', original_error: e)
     end
 
@@ -584,7 +584,7 @@ module DynamoRecord
       dynamodb.delete_item(table_name: table_name, key: { key => send(key) })
       dynamo_logger.info("#{self.class.name} deleted (#{key}: #{send(key)})")
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: self.class.name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                                 operation: 'DeleteItem', original_error: e)
     end
   end

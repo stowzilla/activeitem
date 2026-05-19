@@ -3,7 +3,7 @@
 require_relative 'model_loader'
 require_relative 'pagination'
 
-module DynamoRecord
+module ActiveItem
   # Chainable query builder that accumulates conditions and executes lazily
   # Mimics ActiveRecord::Relation behavior
   class Relation
@@ -260,7 +260,7 @@ module DynamoRecord
     #   container.items.load          # full InventoryItem records
     #   container.items.load.count    # works like a normal array
     #
-    # @return [Array<DynamoRecord::Base>] Fully-hydrated model instances
+    # @return [Array<ActiveItem::Base>] Fully-hydrated model instances
     def load
       records = to_a
       return [] if records.empty?
@@ -317,7 +317,7 @@ module DynamoRecord
       else
         raise ArgumentError, 'find requires either an ID or a block'
       end
-    rescue DynamoRecord::RecordNotFound
+    rescue ActiveItem::RecordNotFound
       nil
     end
 
@@ -355,8 +355,8 @@ module DynamoRecord
     # Add a record to this association
     # Sets the foreign key and saves the record
     # Usage: container.items << item
-    # @param record [DynamoRecord::Base] Record to add to the association
-    # @return [DynamoRecord::Base] The added record
+    # @param record [ActiveItem::Base] Record to add to the association
+    # @return [ActiveItem::Base] The added record
     def <<(record)
       # Get the foreign key from conditions (first condition is the foreign key)
       foreign_key, foreign_value = conditions.first
@@ -519,7 +519,7 @@ module DynamoRecord
         paginated_scan_with_conditions(normalized_conditions, exclusive_start_key, per_page)
       end
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                                 operation: 'PaginatedQuery', original_error: e)
     end
 
@@ -531,7 +531,7 @@ module DynamoRecord
       require 'json'
       JSON.parse(Base64.urlsafe_decode64(cursor))
     rescue ArgumentError, JSON::ParserError => e
-      DynamoRecord.logger.warn("Invalid pagination cursor: #{e.message}")
+      ActiveItem.logger.warn("Invalid pagination cursor: #{e.message}")
       nil
     end
 
@@ -729,7 +729,7 @@ module DynamoRecord
       # Apply Ruby-side filter for case-insensitive matching
       apply_ilike_filter(records)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                                 operation: 'Query/Scan', original_error: e)
     end
 
@@ -768,7 +768,7 @@ module DynamoRecord
 
       total
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
-      raise DynamoRecord::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                                 operation: 'Count', original_error: e)
     end
     def build_count_query_params(idx_name, normalized_conditions)

@@ -1,17 +1,17 @@
-# DynamoRecord
+# ActiveItem
 
 ActiveRecord-like ORM for AWS DynamoDB.
 
 ## Installation
 
 ```ruby
-gem 'dynamorecord'
+gem 'activeitem'
 ```
 
 ## Configuration
 
 ```ruby
-DynamoRecord.configure do |config|
+ActiveItem.configure do |config|
   config.table_prefix = 'myapp'
   config.environment = 'production'
   config.logger = Rails.logger # or any Logger-compatible object
@@ -23,7 +23,7 @@ Table names are generated as `{prefix}-{environment}-{model-name-pluralized}`.
 ## Usage
 
 ```ruby
-class User < DynamoRecord::Base
+class User < ActiveItem::Base
   self.primary_key = :user_id
 
   attr_accessor :email, :name, :status
@@ -71,7 +71,7 @@ User.exists?('user-123')
 ### Associations
 
 ```ruby
-class Post < DynamoRecord::Base
+class Post < ActiveItem::Base
   belongs_to :user
   has_many :comments, foreign_key: 'post_id', index: 'PostIndex'
 end
@@ -80,7 +80,7 @@ end
 ### Transactions
 
 ```ruby
-DynamoRecord::Base.transaction do |txn|
+ActiveItem::Base.transaction do |txn|
   txn.put(new_record)
   txn.update(existing_record)
   txn.delete(old_record)
@@ -98,7 +98,7 @@ result.pagination_metadata # => { next_cursor: "...", has_more: true, per_page: 
 ### Composed Of (Value Objects)
 
 ```ruby
-class Customer < DynamoRecord::Base
+class Customer < ActiveItem::Base
   attr_accessor :street, :city, :state, :zip_code
 
   composed_of :address, class_name: 'Address', mapping: {

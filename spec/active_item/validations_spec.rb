@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'DynamoRecord Validations' do
+RSpec.describe 'ActiveItem Validations' do
   let(:fake_dynamo) { @fake_dynamo }
 
   let(:model_class) do
-    Class.new(DynamoRecord::Base) do
+    Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-items'
 
       attr_accessor :name, :email, :age, :code

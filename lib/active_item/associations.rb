@@ -4,7 +4,7 @@ require 'active_support/concern'
 require 'active_support/inflector'
 require_relative 'model_loader'
 
-module DynamoRecord
+module ActiveItem
   module Associations
     extend ActiveSupport::Concern
     include ModelLoader
@@ -147,7 +147,7 @@ module DynamoRecord
 
       begin
         record = klass.find(foreign_key_value)
-      rescue DynamoRecord::RecordNotFound
+      rescue ActiveItem::RecordNotFound
         raise unless config[:optional]
         record = nil
       end

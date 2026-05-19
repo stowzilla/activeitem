@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
-module DynamoRecord
+module ActiveItem
   VERSION = '0.0.1'
 end

@@ -2,7 +2,7 @@
 
 require 'set'
 
-module DynamoRecord
+module ActiveItem
   module DatabaseHelpers
     def get(key)
       response = dynamodb.get_item(table_name: table_name, key: key)
@@ -77,7 +77,7 @@ module DynamoRecord
     private
 
     def raise_access_denied(operation, original_error)
-      raise DynamoRecord::AccessDeniedError.new(model_name: name, table: table_name,
+      raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
                                                 operation: operation, original_error: original_error)
     end
   end
