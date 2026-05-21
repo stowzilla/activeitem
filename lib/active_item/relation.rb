@@ -529,7 +529,22 @@ module ActiveItem
 
       require 'base64'
       require 'json'
-      JSON.parse(Base64.urlsafe_decode64(cursor))
+      decoded = JSON.parse(Base64.urlsafe_decode64(cursor))
+
+      return nil unless decoded.is_a?(Hash)
+      return nil if decoded.empty?
+
+      # Only allow simple string/numeric values — reject nested objects, arrays, or expressions
+      allowed_key_pattern = /\A[a-zA-Z][a-zA-Z0-9_]*\z/
+      decoded.each do |key, value|
+        unless key.is_a?(String) && key.match?(allowed_key_pattern) &&
+               (value.is_a?(String) || value.is_a?(Numeric))
+          ActiveItem.logger.warn("Rejected pagination cursor: invalid key/value structure")
+          return nil
+        end
+      end
+
+      decoded
     rescue ArgumentError, JSON::ParserError => e
       ActiveItem.logger.warn("Invalid pagination cursor: #{e.message}")
       nil
