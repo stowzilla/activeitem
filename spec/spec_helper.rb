@@ -52,7 +52,11 @@ class FakeDynamoClient
 
   def query(params)
     @calls << [:query, params]
-    OpenStruct.new(items: [], last_evaluated_key: nil)
+    if params[:select] == 'COUNT'
+      OpenStruct.new(count: 0, items: [], last_evaluated_key: nil)
+    else
+      OpenStruct.new(items: [], count: 0, last_evaluated_key: nil)
+    end
   end
 
   def scan(params)
