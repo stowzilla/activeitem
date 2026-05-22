@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem Validations' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -19,7 +19,7 @@ RSpec.describe 'ActiveItem Validations' do
       def self.name
         'Item'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'validates presence' do
@@ -60,6 +60,9 @@ RSpec.describe 'ActiveItem Validations' do
   it 'prevents save when invalid' do
     record = model_class.new(email: 'a@b.com', age: 5)
     expect(record.save).to be false
-    expect(fake_dynamo.calls).to be_empty
+
+    # Verify nothing was written
+    scan = dynamo_client.scan(table_name: 'test-dev-items')
+    expect(scan.items).to be_empty
   end
 end
