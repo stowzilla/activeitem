@@ -9,7 +9,8 @@ module ActiveItem
     def populate_composed_attributes_from_item(item)
       self.class.compositions.each do |part_id, config|
         dynamo_key = self.class.to_dynamo_key(part_id.to_s)
-        vo_class = Object.const_get(config[:class_name])
+        vo_class = config[:class_name].safe_constantize
+        next unless vo_class
 
         if item[dynamo_key].is_a?(Hash)
           vo = if vo_class.respond_to?(:from_dynamo_map)
@@ -151,7 +152,8 @@ module ActiveItem
           ivar = "@_composed_#{part_id}"
           return instance_variable_get(ivar) if instance_variable_defined?(ivar)
 
-          vo_class = Object.const_get(class_name)
+          vo_class = class_name.safe_constantize
+          raise NameError, "Unknown value object class: #{class_name}" unless vo_class
           values = mapping.map { |model_attr, _vo_attr| send(model_attr) }
 
           if allow_nil && values.all? { |v| v.nil? || (v.respond_to?(:empty?) && v.empty?) }
@@ -173,17 +175,20 @@ module ActiveItem
         define_method("#{part_id}=") do |value|
           ivar = "@_composed_#{part_id}"
 
+          vo_class = class_name.safe_constantize
+          raise NameError, "Unknown value object class: #{class_name}" unless vo_class
+
           if value.nil?
             mapping.each_key { |model_attr| send("#{model_attr}=", nil) }
             instance_variable_set(ivar, nil)
-          elsif value.is_a?(Object.const_get(class_name))
+          elsif value.is_a?(vo_class)
             mapping.each { |model_attr, vo_attr| send("#{model_attr}=", value.send(vo_attr)) }
             instance_variable_set(ivar, value)
           elsif converter
-            converted = converter.is_a?(Proc) ? converter.call(value) : Object.const_get(class_name).send(converter, value)
+            converted = converter.is_a?(Proc) ? converter.call(value) : vo_class.send(converter, value)
             send("#{part_id}=", converted)
           elsif value.is_a?(Hash)
-            vo = Object.const_get(class_name).new(**value.transform_keys(&:to_sym))
+            vo = vo_class.new(**value.transform_keys(&:to_sym))
             send("#{part_id}=", vo)
           else
             raise ArgumentError, "Cannot assign #{value.class} to #{part_id}. Expected #{class_name}, Hash, or nil."

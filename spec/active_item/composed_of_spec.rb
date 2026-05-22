@@ -27,7 +27,7 @@ RSpec.describe ActiveItem::ComposedOf do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-customers'
+      self.table_name = "#{TABLE_PREFIX}-customers"
       attr_accessor :name, :street, :city, :state, :zip_code
 
       composed_of :address, class_name: 'Address', mapping: {
@@ -92,7 +92,7 @@ RSpec.describe ActiveItem::ComposedOf do
       record = model_class.new(name: 'Alice', street: '123 Main', city: 'Orlando', state: 'FL', zip_code: '32801')
       record.save
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-customers', key: { 'id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-customers", key: { 'id' => record.id })
       item = resp.item
 
       expect(item).not_to have_key('street')
@@ -102,7 +102,7 @@ RSpec.describe ActiveItem::ComposedOf do
     end
 
     it 'populates composed attributes from DynamoDB item' do
-      dynamo_client.put_item(table_name: 'test-dev-customers', item: {
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-customers", item: {
         'id' => 'c1', 'name' => 'Bob',
         'address' => { 'street' => '999 Elm', 'city' => 'Jax', 'state' => 'FL', 'zipCode' => '32099' }
       })

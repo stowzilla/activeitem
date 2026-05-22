@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem parallel preload' do
 
   let(:parent_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-parents'
+      self.table_name = "#{TABLE_PREFIX}-parents"
       attr_accessor :name
 
       has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
@@ -20,7 +20,7 @@ RSpec.describe 'ActiveItem parallel preload' do
 
   let(:child_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-children'
+      self.table_name = "#{TABLE_PREFIX}-children"
       attr_accessor :parent_id
 
       indexes('ParentIndex' => { partition_key: 'parentId' })
@@ -38,9 +38,9 @@ RSpec.describe 'ActiveItem parallel preload' do
 
   it 'preloads counts for multiple parents' do
     3.times do |i|
-      dynamo_client.put_item(table_name: 'test-dev-parents', item: { 'id' => "p#{i}", 'name' => "Parent #{i}" })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-parents", item: { 'id' => "p#{i}", 'name' => "Parent #{i}" })
       2.times do |j|
-        dynamo_client.put_item(table_name: 'test-dev-children', item: { 'id' => "c#{i}-#{j}", 'parentId' => "p#{i}" })
+        dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-children", item: { 'id' => "c#{i}-#{j}", 'parentId' => "p#{i}" })
       end
     end
 

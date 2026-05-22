@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem uniqueness validator' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-users'
+      self.table_name = "#{TABLE_PREFIX}-users"
       attr_accessor :email, :name, :org_id
 
       validates :email, uniqueness: true
@@ -48,7 +48,7 @@ RSpec.describe 'ActiveItem uniqueness validator' do
   describe 'with scope' do
     let(:scoped_model) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-scoped-users'
+        self.table_name = "#{TABLE_PREFIX}-scoped-users"
         attr_accessor :email, :name, :org_id
 
         validates :email, uniqueness: { scope: :org_id }

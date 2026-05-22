@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem Validations' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-items'
+      self.table_name = "#{TABLE_PREFIX}-items"
 
       attr_accessor :name, :email, :age, :code
 
@@ -62,7 +62,7 @@ RSpec.describe 'ActiveItem Validations' do
     expect(record.save).to be false
 
     # Verify nothing was written
-    scan = dynamo_client.scan(table_name: 'test-dev-items')
+    scan = dynamo_client.scan(table_name: "#{TABLE_PREFIX}-items")
     expect(scan.items).to be_empty
   end
 end

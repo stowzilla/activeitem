@@ -7,7 +7,7 @@ RSpec.describe ActiveItem::Transaction do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-things'
+      self.table_name = "#{TABLE_PREFIX}-things"
       attr_accessor :name
 
       def self.name
@@ -41,7 +41,7 @@ RSpec.describe ActiveItem::Transaction do
       txn.put(record)
       txn.execute!
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-things', key: { 'id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-things", key: { 'id' => record.id })
       expect(resp.item['name']).to eq('Widget')
     end
 

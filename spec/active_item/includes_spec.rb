@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
 
   let(:author_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-authors'
+      self.table_name = "#{TABLE_PREFIX}-authors"
       attr_accessor :name
 
       def self.name
@@ -18,7 +18,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
 
   let(:book_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-books'
+      self.table_name = "#{TABLE_PREFIX}-books"
       attr_accessor :title, :author_id
 
       belongs_to :author, class_name: 'Author'
@@ -36,10 +36,10 @@ RSpec.describe 'ActiveItem includes (preloading)' do
 
   describe '.includes with belongs_to' do
     it 'preloads associated records' do
-      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'a1', 'name' => 'Hemingway' })
-      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'a2', 'name' => 'Fitzgerald' })
-      dynamo_client.put_item(table_name: 'test-dev-books', item: { 'id' => 'b1', 'title' => 'Sun Also Rises', 'authorId' => 'a1' })
-      dynamo_client.put_item(table_name: 'test-dev-books', item: { 'id' => 'b2', 'title' => 'Gatsby', 'authorId' => 'a2' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-authors", item: { 'id' => 'a1', 'name' => 'Hemingway' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-authors", item: { 'id' => 'a2', 'name' => 'Fitzgerald' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-books", item: { 'id' => 'b1', 'title' => 'Sun Also Rises', 'authorId' => 'a1' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-books", item: { 'id' => 'b2', 'title' => 'Gatsby', 'authorId' => 'a2' })
 
       books = book_class.includes(:author).all.to_a
 
@@ -65,7 +65,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
   describe '.includes with has_many :count' do
     let(:parent_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-parents'
+        self.table_name = "#{TABLE_PREFIX}-parents"
         attr_accessor :name
 
         has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
@@ -78,7 +78,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
 
     let(:child_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-children'
+        self.table_name = "#{TABLE_PREFIX}-children"
         attr_accessor :parent_id
 
         indexes('ParentIndex' => { partition_key: 'parentId' })
@@ -95,9 +95,9 @@ RSpec.describe 'ActiveItem includes (preloading)' do
     end
 
     it 'preloads counts for has_many associations' do
-      dynamo_client.put_item(table_name: 'test-dev-parents', item: { 'id' => 'p1', 'name' => 'Parent 1' })
-      dynamo_client.put_item(table_name: 'test-dev-children', item: { 'id' => 'c1', 'parentId' => 'p1' })
-      dynamo_client.put_item(table_name: 'test-dev-children', item: { 'id' => 'c2', 'parentId' => 'p1' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-parents", item: { 'id' => 'p1', 'name' => 'Parent 1' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-children", item: { 'id' => 'c1', 'parentId' => 'p1' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-children", item: { 'id' => 'c2', 'parentId' => 'p1' })
 
       parents = parent_class.includes(children: :count).all.to_a
       expect(parents.first._preloaded_counts[:children]).to eq(2)

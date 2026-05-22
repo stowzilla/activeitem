@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem Relation#order' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-events'
+      self.table_name = "#{TABLE_PREFIX}-events"
       attr_accessor :customer_id, :event_type
 
       indexes('CustomerIndex' => { partition_key: 'customerId', sort_key: 'createdAt' })
@@ -33,16 +33,16 @@ RSpec.describe 'ActiveItem Relation#order' do
   end
 
   it 'returns results in descending order' do
-    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
-    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-events", item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-events", item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
 
     results = model_class.where(customer_id: 'c1').order(:desc).to_a
     expect(results.first.created_at).to be > results.last.created_at
   end
 
   it 'returns results in ascending order' do
-    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
-    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-events", item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-events", item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
 
     results = model_class.where(customer_id: 'c1').order(:asc).to_a
     expect(results.first.created_at).to be < results.last.created_at

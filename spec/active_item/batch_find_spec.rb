@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem batch_find' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-widgets'
+      self.table_name = "#{TABLE_PREFIX}-widgets"
       attr_accessor :name
 
       def self.name
@@ -17,8 +17,8 @@ RSpec.describe 'ActiveItem batch_find' do
   end
 
   it 'returns multiple records by ID' do
-    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
-    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w2', 'name' => 'Beta' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets", item: { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets", item: { 'id' => 'w2', 'name' => 'Beta' })
 
     results = model_class.batch_find(['w1', 'w2'])
     expect(results.length).to eq(2)
@@ -30,7 +30,7 @@ RSpec.describe 'ActiveItem batch_find' do
   end
 
   it 'silently skips IDs not found' do
-    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets", item: { 'id' => 'w1', 'name' => 'Alpha' })
 
     results = model_class.batch_find(['w1', 'missing'])
     expect(results.length).to eq(1)
@@ -38,14 +38,14 @@ RSpec.describe 'ActiveItem batch_find' do
   end
 
   it 'marks returned records as persisted' do
-    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets", item: { 'id' => 'w1', 'name' => 'Alpha' })
 
     results = model_class.batch_find(['w1'])
     expect(results.first.persisted?).to be true
   end
 
   it 'batches requests in chunks of 100' do
-    101.times { |i| dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => "w#{i}", 'name' => "Item #{i}" }) }
+    101.times { |i| dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets", item: { 'id' => "w#{i}", 'name' => "Item #{i}" }) }
 
     ids = 101.times.map { |i| "w#{i}" }
     results = model_class.batch_find(ids)
