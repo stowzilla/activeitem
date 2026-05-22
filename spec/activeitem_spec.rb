@@ -3,6 +3,13 @@
 require_relative 'spec_helper'
 
 RSpec.describe ActiveItem do
+  after do
+    ActiveItem.configure do |config|
+      config.table_prefix = "test#{TEST_WORKER}"
+      config.environment = 'dev'
+    end
+  end
+
   it 'has a version number' do
     expect(ActiveItem::VERSION).to eq('0.0.2')
   end
