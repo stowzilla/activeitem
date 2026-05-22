@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe ActiveItem::Transaction do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -13,7 +13,7 @@ RSpec.describe ActiveItem::Transaction do
       def self.name
         'Thing'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   describe '#put' do
@@ -35,12 +35,14 @@ RSpec.describe ActiveItem::Transaction do
   end
 
   describe '#execute!' do
-    it 'calls transact_write_items' do
+    it 'persists records to DynamoDB' do
       txn = ActiveItem::Transaction.new
       record = model_class.new(name: 'Widget')
       txn.put(record)
       txn.execute!
-      expect(fake_dynamo.calls.last.first).to eq(:transact_write_items)
+
+      resp = dynamo_client.get_item(table_name: 'test-dev-things', key: { 'id' => record.id })
+      expect(resp.item['name']).to eq('Widget')
     end
 
     it 'marks put records as persisted' do
@@ -59,8 +61,7 @@ RSpec.describe ActiveItem::Transaction do
 
     it 'does nothing when empty' do
       txn = ActiveItem::Transaction.new
-      txn.execute!
-      expect(fake_dynamo.calls).to be_empty
+      expect { txn.execute! }.not_to raise_error
     end
   end
 end

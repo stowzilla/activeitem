@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe ActiveItem::Associations do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:author_class) do
     Class.new(ActiveItem::Base) do
@@ -13,11 +13,10 @@ RSpec.describe ActiveItem::Associations do
       def self.name
         'Author'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   let(:book_class) do
-    author_klass = author_class
     Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-books'
       attr_accessor :title, :author_id
@@ -27,7 +26,7 @@ RSpec.describe ActiveItem::Associations do
       def self.name
         'Book'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   describe 'belongs_to' do
@@ -37,9 +36,8 @@ RSpec.describe ActiveItem::Associations do
     end
 
     it 'loads associated record' do
-      # Stub Author constant for model loader
       stub_const('Author', author_class)
-      fake_dynamo.seed('test-dev-authors', 'auth-1', { 'id' => 'auth-1', 'name' => 'Hemingway' })
+      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'auth-1', 'name' => 'Hemingway' })
 
       book = book_class.new(title: 'Test', author_id: 'auth-1')
       author = book.author
@@ -64,18 +62,17 @@ RSpec.describe ActiveItem::Associations do
         def self.name
           'Parent'
         end
-      end.tap { |klass| klass.dynamodb = fake_dynamo }
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     it 'returns a Relation' do
-      stub_const('Child', Class.new(ActiveItem::Base) { self.table_name = 'test-dev-children' })
-      parent = parent_class.allocate
-      parent.instance_variable_set(:@id, 'p-1')
-      parent.instance_variable_set(:@new_record, false)
-      parent.instance_variable_set(:@pending_changes, {})
-      parent.instance_variable_set(:@previously_changed, {})
-      parent.instance_variable_set(:@_preloaded_counts, {})
-      parent.instance_variable_set(:@_preloaded_associations, {})
+      stub_const('Child', Class.new(ActiveItem::Base) {
+        self.table_name = 'test-dev-children'
+        def self.name; 'Child'; end
+      }.tap { |k| k.dynamodb = dynamo_client })
+
+      parent = parent_class.new(name: 'Test')
+      parent.save
 
       result = parent.children
       expect(result).to be_a(ActiveItem::Relation)

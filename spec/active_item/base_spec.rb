@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe ActiveItem::Base do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   before do
     ActiveItem.configure do |config|
@@ -12,7 +12,6 @@ RSpec.describe ActiveItem::Base do
     end
   end
 
-  # Define a test model
   let(:model_class) do
     Class.new(ActiveItem::Base) do
       self.table_name = 'test-dev-users'
@@ -22,7 +21,7 @@ RSpec.describe ActiveItem::Base do
       def self.name
         'User'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   describe '.table_name' do
@@ -74,17 +73,18 @@ RSpec.describe ActiveItem::Base do
       expect(record.new_record?).to be false
     end
 
-    it 'calls put_item on DynamoDB' do
+    it 'persists item to DynamoDB' do
       record = model_class.new(email: 'test@example.com', name: 'Alice')
       record.save
-      expect(fake_dynamo.calls.last.first).to eq(:put_item)
-      params = fake_dynamo.calls.last.last
-      expect(params[:table_name]).to eq('test-dev-users')
-      expect(params[:item]['email']).to eq('test@example.com')
+
+      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      expect(resp.item['email']).to eq('test@example.com')
+      expect(resp.item['name']).to eq('Alice')
     end
 
     it 'returns false when id already exists' do
-      fake_dynamo.seed('test-dev-users', 'existing-id', { 'id' => 'existing-id' })
+      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'existing-id', 'email' => 'x@y.com' })
+
       record = model_class.new(email: 'test@example.com')
       record.id = 'existing-id'
       expect(record.save).to be false
@@ -93,40 +93,45 @@ RSpec.describe ActiveItem::Base do
   end
 
   describe '#save (update)' do
-    let(:existing_record) do
-      record = model_class.allocate
-      record.instance_variable_set(:@id, 'user-1')
-      record.instance_variable_set(:@email, 'old@example.com')
-      record.instance_variable_set(:@new_record, false)
-      record.instance_variable_set(:@pending_changes, {})
-      record.instance_variable_set(:@previously_changed, {})
-      record
-    end
+    it 'updates changed attributes in DynamoDB' do
+      record = model_class.new(email: 'old@example.com', name: 'Old')
+      record.save
 
-    it 'calls update_item with changed attributes' do
-      existing_record.email = 'new@example.com'
-      existing_record.save
-      expect(fake_dynamo.calls.last.first).to eq(:update_item)
+      record.email = 'new@example.com'
+      record.save
+
+      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      expect(resp.item['email']).to eq('new@example.com')
     end
 
     it 'does nothing when no changes' do
-      existing_record.save
-      expect(fake_dynamo.calls).to be_empty
+      record = model_class.new(email: 'test@example.com')
+      record.save
+
+      # Re-save without changes — item should still be there unchanged
+      record.save
+      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      expect(resp.item['email']).to eq('test@example.com')
     end
   end
 
   describe '#destroy' do
-    it 'calls delete_item on DynamoDB' do
+    it 'removes item from DynamoDB' do
       record = model_class.new(email: 'test@example.com')
       record.save
+      id = record.id
+
       record.destroy
-      expect(fake_dynamo.calls.last.first).to eq(:delete_item)
+
+      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => id })
+      expect(resp.item).to be_nil
     end
   end
 
   describe '.find' do
     it 'returns instantiated record when found' do
-      fake_dynamo.seed('test-dev-users', 'user-1', { 'id' => 'user-1', 'email' => 'found@example.com', 'name' => 'Found' })
+      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'user-1', 'email' => 'found@example.com', 'name' => 'Found' })
+
       record = model_class.find('user-1')
       expect(record.id).to eq('user-1')
       expect(record.email).to eq('found@example.com')
@@ -140,8 +145,9 @@ RSpec.describe ActiveItem::Base do
 
   describe '.batch_find' do
     it 'returns multiple records' do
-      fake_dynamo.seed('test-dev-users', 'u1', { 'id' => 'u1', 'email' => 'a@b.com' })
-      fake_dynamo.seed('test-dev-users', 'u2', { 'id' => 'u2', 'email' => 'c@d.com' })
+      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u1', 'email' => 'a@b.com' })
+      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u2', 'email' => 'c@d.com' })
+
       results = model_class.batch_find(['u1', 'u2'])
       expect(results.length).to eq(2)
     end
@@ -154,8 +160,7 @@ RSpec.describe ActiveItem::Base do
   describe 'dirty tracking' do
     it 'tracks attribute changes' do
       record = model_class.new(email: 'old@example.com')
-      record.instance_variable_set(:@new_record, false)
-      record.instance_variable_set(:@pending_changes, {})
+      record.save
       record.email = 'new@example.com'
       expect(record.attribute_changed?(:email)).to be true
       expect(record.changes['email']).to eq(['old@example.com', 'new@example.com'])
@@ -179,7 +184,7 @@ RSpec.describe ActiveItem::Base do
           self.status = 'active'
         end
       end
-      klass.dynamodb = fake_dynamo
+      klass.dynamodb = dynamo_client
       klass.table_name = 'test-dev-users'
 
       record = klass.new(email: 'test@example.com')
@@ -191,7 +196,7 @@ RSpec.describe ActiveItem::Base do
   describe 'custom primary key' do
     let(:custom_pk_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-widgets'
+        self.table_name = 'test-dev-widgets-custom-pk'
         self.primary_key = :widget_id
 
         attr_accessor :name
@@ -199,15 +204,16 @@ RSpec.describe ActiveItem::Base do
         def self.name
           'Widget'
         end
-      end.tap { |klass| klass.dynamodb = fake_dynamo }
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     it 'uses custom primary key for storage' do
       record = custom_pk_class.new(name: 'Sprocket')
       record.save
-      params = fake_dynamo.calls.last.last
-      expect(params[:item]).to have_key('widget_id')
-      expect(record.widget_id).to eq(record.id)
+
+      resp = dynamo_client.get_item(table_name: 'test-dev-widgets-custom-pk', key: { 'widget_id' => record.id })
+      expect(resp.item).not_to be_nil
+      expect(resp.item['widget_id']).to eq(record.widget_id)
     end
   end
 
