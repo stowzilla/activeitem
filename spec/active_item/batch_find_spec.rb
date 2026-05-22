@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem batch_find' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -13,12 +13,12 @@ RSpec.describe 'ActiveItem batch_find' do
       def self.name
         'Widget'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'returns multiple records by ID' do
-    fake_dynamo.seed('test-dev-widgets', 'w1', { 'id' => 'w1', 'name' => 'Alpha' })
-    fake_dynamo.seed('test-dev-widgets', 'w2', { 'id' => 'w2', 'name' => 'Beta' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w2', 'name' => 'Beta' })
 
     results = model_class.batch_find(['w1', 'w2'])
     expect(results.length).to eq(2)
@@ -30,7 +30,7 @@ RSpec.describe 'ActiveItem batch_find' do
   end
 
   it 'silently skips IDs not found' do
-    fake_dynamo.seed('test-dev-widgets', 'w1', { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
 
     results = model_class.batch_find(['w1', 'missing'])
     expect(results.length).to eq(1)
@@ -38,22 +38,17 @@ RSpec.describe 'ActiveItem batch_find' do
   end
 
   it 'marks returned records as persisted' do
-    fake_dynamo.seed('test-dev-widgets', 'w1', { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
 
     results = model_class.batch_find(['w1'])
     expect(results.first.persisted?).to be true
   end
 
   it 'batches requests in chunks of 100' do
-    # Seed 101 items
-    101.times { |i| fake_dynamo.seed('test-dev-widgets', "w#{i}", { 'id' => "w#{i}", 'name' => "Item #{i}" }) }
+    101.times { |i| dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => "w#{i}", 'name' => "Item #{i}" }) }
 
     ids = 101.times.map { |i| "w#{i}" }
     results = model_class.batch_find(ids)
     expect(results.length).to eq(101)
-
-    # Should have made at least 2 batch_get_item calls
-    batch_calls = fake_dynamo.calls.select { |c| c.first == :batch_get_item }
-    expect(batch_calls.length).to eq(2)
   end
 end

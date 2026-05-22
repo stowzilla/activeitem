@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem batch_find unprocessed keys' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -13,32 +13,27 @@ RSpec.describe 'ActiveItem batch_find unprocessed keys' do
       def self.name
         'Widget'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'retries unprocessed keys with exponential backoff' do
-    fake_dynamo.seed('test-dev-widgets', 'w1', { 'id' => 'w1', 'name' => 'Alpha' })
-    fake_dynamo.seed('test-dev-widgets', 'w2', { 'id' => 'w2', 'name' => 'Beta' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
+    dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w2', 'name' => 'Beta' })
 
     call_count = 0
-    allow(fake_dynamo).to receive(:batch_get_item).and_wrap_original do |method, params|
+    allow(dynamo_client).to receive(:batch_get_item).and_wrap_original do |method, params|
       call_count += 1
       if call_count == 1
-        # First call: return w1 but mark w2 as unprocessed
-        OpenStruct.new(
+        # Simulate throttling: return w1 but mark w2 as unprocessed
+        Aws::DynamoDB::Types::BatchGetItemOutput.new(
           responses: { 'test-dev-widgets' => [{ 'id' => 'w1', 'name' => 'Alpha' }] },
           unprocessed_keys: { 'test-dev-widgets' => { keys: [{ 'id' => 'w2' }] } }
         )
       else
-        # Retry: return w2
-        OpenStruct.new(
-          responses: { 'test-dev-widgets' => [{ 'id' => 'w2', 'name' => 'Beta' }] },
-          unprocessed_keys: {}
-        )
+        method.call(params)
       end
     end
 
-    # Stub sleep to avoid actual delays in tests
     allow_any_instance_of(Object).to receive(:sleep)
 
     results = model_class.batch_find(['w1', 'w2'])
@@ -47,8 +42,8 @@ RSpec.describe 'ActiveItem batch_find unprocessed keys' do
   end
 
   it 'gives up after max retries' do
-    allow(fake_dynamo).to receive(:batch_get_item).and_return(
-      OpenStruct.new(
+    allow(dynamo_client).to receive(:batch_get_item).and_return(
+      Aws::DynamoDB::Types::BatchGetItemOutput.new(
         responses: { 'test-dev-widgets' => [] },
         unprocessed_keys: { 'test-dev-widgets' => { keys: [{ 'id' => 'w1' }] } }
       )
@@ -56,7 +51,6 @@ RSpec.describe 'ActiveItem batch_find unprocessed keys' do
     allow_any_instance_of(Object).to receive(:sleep)
 
     results = model_class.batch_find(['w1'])
-    # After max retries it stops — returns whatever it collected
     expect(results).to eq([])
   end
 end

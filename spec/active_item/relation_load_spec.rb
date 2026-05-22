@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem Relation#load' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -15,12 +15,12 @@ RSpec.describe 'ActiveItem Relation#load' do
       def self.name
         'Item'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'returns an array of records' do
-    fake_dynamo.seed('test-dev-items', 'i1', { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
-    fake_dynamo.seed('test-dev-items', 'i2', { 'id' => 'i2', 'name' => 'Beta', 'status' => 'active' })
+    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'active' })
 
     results = model_class.all.load
     expect(results).to be_an(Array)
@@ -33,7 +33,7 @@ RSpec.describe 'ActiveItem Relation#load' do
   end
 
   it 'returns fully hydrated records' do
-    fake_dynamo.seed('test-dev-items', 'i1', { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
 
     results = model_class.all.load
     expect(results.first.name).to eq('Alpha')

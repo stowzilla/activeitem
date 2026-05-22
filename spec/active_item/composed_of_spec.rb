@@ -23,7 +23,7 @@ class Address
 end
 
 RSpec.describe ActiveItem::ComposedOf do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -37,7 +37,7 @@ RSpec.describe ActiveItem::ComposedOf do
       def self.name
         'Customer'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   describe 'reader' do
@@ -92,10 +92,9 @@ RSpec.describe ActiveItem::ComposedOf do
       record = model_class.new(name: 'Alice', street: '123 Main', city: 'Orlando', state: 'FL', zip_code: '32801')
       record.save
 
-      put_call = fake_dynamo.calls.find { |c| c.first == :put_item }
-      item = put_call.last[:item]
+      resp = dynamo_client.get_item(table_name: 'test-dev-customers', key: { 'id' => record.id })
+      item = resp.item
 
-      # Flat keys should be removed, nested map should exist
       expect(item).not_to have_key('street')
       expect(item).not_to have_key('city')
       expect(item['address']).to be_a(Hash)
@@ -103,7 +102,7 @@ RSpec.describe ActiveItem::ComposedOf do
     end
 
     it 'populates composed attributes from DynamoDB item' do
-      fake_dynamo.seed('test-dev-customers', 'c1', {
+      dynamo_client.put_item(table_name: 'test-dev-customers', item: {
         'id' => 'c1', 'name' => 'Bob',
         'address' => { 'street' => '999 Elm', 'city' => 'Jax', 'state' => 'FL', 'zipCode' => '32099' }
       })

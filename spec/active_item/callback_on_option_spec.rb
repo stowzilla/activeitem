@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem callback :on option' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -26,7 +26,7 @@ RSpec.describe 'ActiveItem callback :on option' do
       def log_update
         self.audit_log = 'updated'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'runs before_save on: :create only during creation' do
@@ -63,7 +63,7 @@ RSpec.describe 'ActiveItem callback :on option' do
         # Should not run on create
       end
     end
-    klass.dynamodb = fake_dynamo
+    klass.dynamodb = dynamo_client
 
     allow_any_instance_of(klass).to receive(:check_update) { update_ran = true }
 
@@ -94,7 +94,7 @@ RSpec.describe 'ActiveItem callback :on option' do
         def after_update_hook
           self.hook_result = 'after_update'
         end
-      end.tap { |klass| klass.dynamodb = fake_dynamo }
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     it 'runs after_save on: :create after creation' do

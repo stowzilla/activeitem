@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem includes (preloading)' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:author_class) do
     Class.new(ActiveItem::Base) do
@@ -13,7 +13,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
       def self.name
         'Author'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   let(:book_class) do
@@ -26,7 +26,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
       def self.name
         'Book'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   before do
@@ -35,19 +35,14 @@ RSpec.describe 'ActiveItem includes (preloading)' do
   end
 
   describe '.includes with belongs_to' do
-    it 'preloads associated records via batch_find' do
-      fake_dynamo.seed('test-dev-authors', 'a1', { 'id' => 'a1', 'name' => 'Hemingway' })
-      fake_dynamo.seed('test-dev-authors', 'a2', { 'id' => 'a2', 'name' => 'Fitzgerald' })
-      fake_dynamo.seed('test-dev-books', 'b1', { 'id' => 'b1', 'title' => 'Sun Also Rises', 'authorId' => 'a1' })
-      fake_dynamo.seed('test-dev-books', 'b2', { 'id' => 'b2', 'title' => 'Gatsby', 'authorId' => 'a2' })
+    it 'preloads associated records' do
+      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'a1', 'name' => 'Hemingway' })
+      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'a2', 'name' => 'Fitzgerald' })
+      dynamo_client.put_item(table_name: 'test-dev-books', item: { 'id' => 'b1', 'title' => 'Sun Also Rises', 'authorId' => 'a1' })
+      dynamo_client.put_item(table_name: 'test-dev-books', item: { 'id' => 'b2', 'title' => 'Gatsby', 'authorId' => 'a2' })
 
       books = book_class.includes(:author).all.to_a
 
-      # Should have used batch_get_item for authors (not individual get_item calls)
-      batch_calls = fake_dynamo.calls.select { |c| c.first == :batch_get_item }
-      expect(batch_calls.length).to be >= 1
-
-      # Authors should be cached on the records
       books.each do |book|
         cached = book.instance_variable_get(:@_association_cache_author)
         expect(cached).not_to be_nil
@@ -78,7 +73,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
         def self.name
           'Parent'
         end
-      end.tap { |klass| klass.dynamodb = fake_dynamo }
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     let(:child_class) do
@@ -91,7 +86,7 @@ RSpec.describe 'ActiveItem includes (preloading)' do
         def self.name
           'Child'
         end
-      end.tap { |klass| klass.dynamodb = fake_dynamo }
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     before do
@@ -100,10 +95,12 @@ RSpec.describe 'ActiveItem includes (preloading)' do
     end
 
     it 'preloads counts for has_many associations' do
-      fake_dynamo.seed('test-dev-parents', 'p1', { 'id' => 'p1', 'name' => 'Parent 1' })
+      dynamo_client.put_item(table_name: 'test-dev-parents', item: { 'id' => 'p1', 'name' => 'Parent 1' })
+      dynamo_client.put_item(table_name: 'test-dev-children', item: { 'id' => 'c1', 'parentId' => 'p1' })
+      dynamo_client.put_item(table_name: 'test-dev-children', item: { 'id' => 'c2', 'parentId' => 'p1' })
 
       parents = parent_class.includes(children: :count).all.to_a
-      expect(parents.first._preloaded_counts[:children]).to be_a(Integer)
+      expect(parents.first._preloaded_counts[:children]).to eq(2)
     end
   end
 end

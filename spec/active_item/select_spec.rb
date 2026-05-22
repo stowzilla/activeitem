@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem Relation#select' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -15,7 +15,7 @@ RSpec.describe 'ActiveItem Relation#select' do
       def self.name
         'Item'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'stores select_attributes on the relation' do
@@ -38,13 +38,12 @@ RSpec.describe 'ActiveItem Relation#select' do
     proj = result[:params][:projection_expression]
     names = result[:params][:expression_attribute_names]
 
-    # The primary key should be in the projected attributes
     expect(names.values).to include('id')
   end
 
   it 'delegates to Enumerable#select when block given' do
-    fake_dynamo.seed('test-dev-items', 'i1', { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
-    fake_dynamo.seed('test-dev-items', 'i2', { 'id' => 'i2', 'name' => 'Beta', 'status' => 'inactive' })
+    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'inactive' })
 
     results = model_class.all.select { |r| r.status == 'active' }
     expect(results.length).to eq(1)

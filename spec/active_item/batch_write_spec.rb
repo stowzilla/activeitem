@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem batch_write' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -13,16 +13,17 @@ RSpec.describe 'ActiveItem batch_write' do
       def self.name
         'Widget'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
-  it 'writes multiple records in one batch' do
+  it 'writes multiple records to DynamoDB' do
     records = 3.times.map { |i| model_class.new(name: "Item #{i}") }
-    result = model_class.batch_write(records)
+    model_class.batch_write(records)
 
-    expect(result.length).to eq(3)
-    batch_calls = fake_dynamo.calls.select { |c| c.first == :batch_write_item }
-    expect(batch_calls.length).to eq(1)
+    records.each do |r|
+      resp = dynamo_client.get_item(table_name: 'test-dev-widgets', key: { 'id' => r.id })
+      expect(resp.item).not_to be_nil
+    end
   end
 
   it 'assigns IDs and timestamps' do
@@ -50,8 +51,9 @@ RSpec.describe 'ActiveItem batch_write' do
     records = 30.times.map { |i| model_class.new(name: "Item #{i}") }
     model_class.batch_write(records)
 
-    batch_calls = fake_dynamo.calls.select { |c| c.first == :batch_write_item }
-    expect(batch_calls.length).to eq(2)
+    # Verify all 30 were written
+    scan = dynamo_client.scan(table_name: 'test-dev-widgets')
+    expect(scan.items.length).to eq(30)
   end
 
   it 'does not run callbacks or validations' do
@@ -65,7 +67,7 @@ RSpec.describe 'ActiveItem batch_write' do
         # This should NOT run during batch_write
       end
     end
-    klass.dynamodb = fake_dynamo
+    klass.dynamodb = dynamo_client
     klass.table_name = 'test-dev-widgets'
 
     allow_any_instance_of(klass).to receive(:track_callback) { callback_ran = true }

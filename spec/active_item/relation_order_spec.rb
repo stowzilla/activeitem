@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe 'ActiveItem Relation#order' do
-  let(:fake_dynamo) { @fake_dynamo }
+  let(:dynamo_client) { @dynamo_client }
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
@@ -15,7 +15,7 @@ RSpec.describe 'ActiveItem Relation#order' do
       def self.name
         'Event'
       end
-    end.tap { |klass| klass.dynamodb = fake_dynamo }
+    end.tap { |klass| klass.dynamodb = dynamo_client }
   end
 
   it 'sets order_direction to :desc' do
@@ -32,18 +32,20 @@ RSpec.describe 'ActiveItem Relation#order' do
     expect { model_class.where(customer_id: 'c1').order(:sideways) }.to raise_error(ArgumentError)
   end
 
-  it 'passes scan_index_forward false for :desc' do
-    model_class.where(customer_id: 'c1').order(:desc).to_a
+  it 'returns results in descending order' do
+    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
+    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
 
-    query_call = fake_dynamo.calls.find { |c| c.first == :query }
-    expect(query_call.last[:scan_index_forward]).to eq(false)
+    results = model_class.where(customer_id: 'c1').order(:desc).to_a
+    expect(results.first.created_at).to be > results.last.created_at
   end
 
-  it 'passes scan_index_forward true for :asc' do
-    model_class.where(customer_id: 'c1').order(:asc).to_a
+  it 'returns results in ascending order' do
+    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e1', 'customerId' => 'c1', 'createdAt' => '2024-01-01T00:00:00Z', 'eventType' => 'first' })
+    dynamo_client.put_item(table_name: 'test-dev-events', item: { 'id' => 'e2', 'customerId' => 'c1', 'createdAt' => '2024-01-02T00:00:00Z', 'eventType' => 'second' })
 
-    query_call = fake_dynamo.calls.find { |c| c.first == :query }
-    expect(query_call.last[:scan_index_forward]).to eq(true)
+    results = model_class.where(customer_id: 'c1').order(:asc).to_a
+    expect(results.first.created_at).to be < results.last.created_at
   end
 
   it 'is chainable with other methods' do
