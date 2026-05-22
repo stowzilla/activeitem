@@ -27,6 +27,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'aws-sdk-dynamodb', '~> 1.0'
 
   spec.add_development_dependency 'ostruct'
+  spec.add_development_dependency 'parallel_tests', '~> 4.0'
   spec.add_development_dependency 'rake', '~> 13.0'
   spec.add_development_dependency 'rspec', '~> 3.12'
   spec.add_development_dependency 'rubocop', '~> 1.0'

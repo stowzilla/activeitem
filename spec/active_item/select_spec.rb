@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem Relation#select' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-items'
+      self.table_name = "#{TABLE_PREFIX}-items"
       attr_accessor :name, :status, :description
 
       indexes('StatusIndex' => { partition_key: 'status' })
@@ -42,8 +42,8 @@ RSpec.describe 'ActiveItem Relation#select' do
   end
 
   it 'delegates to Enumerable#select when block given' do
-    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
-    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'inactive' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items", item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items", item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'inactive' })
 
     results = model_class.all.select { |r| r.status == 'active' }
     expect(results.length).to eq(1)

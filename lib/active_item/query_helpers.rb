@@ -40,14 +40,14 @@ module ActiveItem
           items = response.responses[table_name] || []
           results.concat(items.map { |item| instantiate(item) })
 
-          # Check for unprocessed keys and retry with exponential backoff
+          # Check for unprocessed keys and retry with exponential backoff + jitter
           unprocessed = response.unprocessed_keys
           break unless unprocessed&.any?
 
           retries += 1
           break if retries > max_retries
 
-          sleep(0.05 * (2**retries)) # Exponential backoff: 100ms, 200ms, 400ms...
+          sleep(0.05 * (2**retries) * (0.5 + (rand * 0.5)))
           request = unprocessed
 
         end
@@ -106,7 +106,7 @@ module ActiveItem
           retries += 1
           break if retries > max_retries
 
-          sleep(0.05 * (2**retries))
+          sleep(0.05 * (2**retries) * (0.5 + (rand * 0.5)))
           request = unprocessed
 
         end

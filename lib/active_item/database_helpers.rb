@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'set'
-
 module ActiveItem
   # Low-level DynamoDB operations (get, put, delete, query, scan) with
   # automatic pagination and access-denied error wrapping.

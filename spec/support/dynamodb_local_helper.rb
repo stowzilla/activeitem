@@ -14,6 +14,12 @@ module DynamoDBLocalHelper
     )
   end
 
+  def self.verify_connectivity!
+    client.list_tables(limit: 1)
+  rescue Seahorse::Client::NetworkingError, Aws::DynamoDB::Errors::ServiceError => e
+    abort "DynamoDB Local not available at #{ENDPOINT}: #{e.message}"
+  end
+
   def self.create_table(table_name, key_schema: nil, gsis: [])
     key_schema ||= [{ attribute_name: 'id', key_type: 'HASH' }]
     attribute_definitions = key_schema.map { |k| { attribute_name: k[:attribute_name], attribute_type: 'S' } }
@@ -48,13 +54,12 @@ module DynamoDBLocalHelper
 
   def self.delete_table(table_name)
     client.delete_table(table_name: table_name)
-  rescue Aws::DynamoDB::Errors::ResourceNotFoundException
-    # Already gone
+  rescue Aws::DynamoDB::Errors::ResourceNotFoundException, Seahorse::Client::NetworkingError
+    # Already gone or not reachable
   end
 
   def self.truncate_table(table_name)
     scan = client.scan(table_name: table_name)
-    # Determine the key schema to build delete keys
     desc = client.describe_table(table_name: table_name)
     key_attrs = desc.table.key_schema.map(&:attribute_name)
 
@@ -62,5 +67,7 @@ module DynamoDBLocalHelper
       key = key_attrs.to_h { |k| [k, item[k]] }
       client.delete_item(table_name: table_name, key: key)
     end
+  rescue Aws::DynamoDB::Errors::ResourceNotFoundException
+    # Table doesn't exist — nothing to truncate
   end
 end

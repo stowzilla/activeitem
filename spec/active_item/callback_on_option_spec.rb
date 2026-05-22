@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem callback :on option' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-things'
+      self.table_name = "#{TABLE_PREFIX}-things"
       attr_accessor :name, :audit_log
 
       before_save :log_create, on: :create
@@ -48,7 +48,7 @@ RSpec.describe 'ActiveItem callback :on option' do
   it 'does not run on: :update callback during create' do
     update_ran = false
     klass = Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-things'
+      self.table_name = "#{TABLE_PREFIX}-things"
       attr_accessor :name
 
       before_save :check_update, on: :update
@@ -75,7 +75,7 @@ RSpec.describe 'ActiveItem callback :on option' do
   describe 'after_save with :on option' do
     let(:after_model) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-things'
+        self.table_name = "#{TABLE_PREFIX}-things"
         attr_accessor :name, :hook_result
 
         after_save :after_create_hook, on: :create

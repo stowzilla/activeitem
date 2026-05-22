@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem Relation#explain' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-items'
+      self.table_name = "#{TABLE_PREFIX}-items"
       attr_accessor :name, :status, :customer_id
 
       indexes(
@@ -24,7 +24,7 @@ RSpec.describe 'ActiveItem Relation#explain' do
   it 'returns scan for .all' do
     result = model_class.all.explain
     expect(result[:operation]).to eq(:scan)
-    expect(result[:table]).to eq('test-dev-items')
+    expect(result[:table]).to eq("#{TABLE_PREFIX}-items")
   end
 
   it 'returns query with index for indexed condition' do

@@ -40,7 +40,7 @@ module ActiveItem
     end
 
     set_callback :create, :before, :generate_primary_key
-    set_callback :create, :before, :set_created_timestamp
+    set_callback :create, :before, :assign_created_timestamp
     set_callback :destroy, :before, :check_dependent_associations
 
     def initialize(attributes = {})
@@ -496,8 +496,8 @@ module ActiveItem
       instance_variable_set("@#{pk}", @id) if pk != 'id'
     end
 
-    def set_created_timestamp
-      @created_at ||= Time.now.utc.iso8601
+    def assign_created_timestamp
+      @created_at ||= Time.now.utc.iso8601 # rubocop:disable Naming/MemoizedInstanceVariableName
     end
 
     def dynamodb

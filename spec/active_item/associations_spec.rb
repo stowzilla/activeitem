@@ -7,7 +7,7 @@ RSpec.describe ActiveItem::Associations do
 
   let(:author_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-authors'
+      self.table_name = "#{TABLE_PREFIX}-authors"
       attr_accessor :name
 
       def self.name
@@ -18,7 +18,7 @@ RSpec.describe ActiveItem::Associations do
 
   let(:book_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-books'
+      self.table_name = "#{TABLE_PREFIX}-books"
       attr_accessor :title, :author_id
 
       belongs_to :author, class_name: 'Author', optional: true
@@ -37,7 +37,7 @@ RSpec.describe ActiveItem::Associations do
 
     it 'loads associated record' do
       stub_const('Author', author_class)
-      dynamo_client.put_item(table_name: 'test-dev-authors', item: { 'id' => 'auth-1', 'name' => 'Hemingway' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-authors", item: { 'id' => 'auth-1', 'name' => 'Hemingway' })
 
       book = book_class.new(title: 'Test', author_id: 'auth-1')
       author = book.author
@@ -54,7 +54,7 @@ RSpec.describe ActiveItem::Associations do
   describe 'has_many' do
     let(:parent_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-parents'
+        self.table_name = "#{TABLE_PREFIX}-parents"
         attr_accessor :name
 
         has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
@@ -67,7 +67,7 @@ RSpec.describe ActiveItem::Associations do
 
     it 'returns a Relation' do
       stub_const('Child', Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-children'
+        self.table_name = "#{TABLE_PREFIX}-children"
         def self.name = 'Child'
       end.tap { |k| k.dynamodb = dynamo_client })
 
