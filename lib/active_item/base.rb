@@ -4,8 +4,6 @@ require 'aws-sdk-dynamodb'
 require 'active_support/core_ext/string/inflections'
 require 'active_support/core_ext/hash/indifferent_access'
 require 'active_support/core_ext/array/extract_options'
-require 'active_support/callbacks'
-require 'active_support/concern'
 require 'active_model'
 require 'securerandom'
 
@@ -15,9 +13,12 @@ module ActiveItem
   # DynamoDB tables.
   class Base
     include ActiveModel::Validations
-    include ActiveSupport::Callbacks
+    include ActiveModel::Dirty
+    extend ActiveModel::Callbacks
     include Associations
     include Logging
+
+    define_model_callbacks :save, :create, :update, :destroy, :initialize, :validation
 
     def self.const_missing(name)
       ActiveItem.const_defined?(name) ? ActiveItem.const_get(name) : super
@@ -29,9 +30,6 @@ module ActiveItem
     extend QueryHelpers
     extend Validations
 
-    define_callbacks :save, :create, :update, :destroy, :validation
-    define_model_callbacks :initialize, only: :after
-
     attr_reader :id
     attr_accessor :created_at, :updated_at, :dbrecord
 
@@ -39,13 +37,11 @@ module ActiveItem
       @id = (value.to_s.strip.empty? ? nil : value)
     end
 
-    set_callback :create, :before, :generate_primary_key
-    set_callback :create, :before, :assign_created_timestamp
-    set_callback :destroy, :before, :check_dependent_associations
+    before_create :generate_primary_key
+    before_create :assign_created_timestamp
+    before_destroy :check_dependent_associations
 
     def initialize(attributes = {})
-      @previously_changed = {}
-      @pending_changes = {}
       @_preloaded_counts = {}
       @_preloaded_associations = {}
       @new_record = true
@@ -56,6 +52,8 @@ module ActiveItem
         setter = "#{key}="
         send(setter, value) if respond_to?(setter)
       end
+
+      clear_changes_information
     end
 
     def _preloaded_counts
@@ -99,19 +97,18 @@ module ActiveItem
         attrs.each do |attr|
           attr_name = attr.to_s
 
+          define_attribute_methods attr_name
+
           define_method(attr_name) do
             instance_variable_get("@#{attr_name}")
           end
 
           define_method("#{attr_name}=") do |value|
             old_value = instance_variable_get("@#{attr_name}")
+            if old_value != value
+              send("#{attr_name}_will_change!") unless changed_attributes.key?(attr_name)
+            end
             instance_variable_set("@#{attr_name}", value)
-
-            return unless old_value != value && instance_variable_defined?(:@pending_changes)
-
-            @pending_changes ||= {}
-            @pending_changes[attr_name] ||= [old_value, nil]
-            @pending_changes[attr_name][1] = value
           end
         end
       end
@@ -181,9 +178,9 @@ module ActiveItem
         record.instance_variable_set(:@id, normalized_item[primary_key])
         record.send(:populate_attributes_from_item, normalized_item)
         record.instance_variable_set(:@new_record, false)
-        record.instance_variable_set(:@previously_changed, {})
-        record.instance_variable_set(:@pending_changes, {})
+        record.instance_variable_set(:@mutations_from_database, nil)
         record.instance_variable_set(:@dbrecord, normalized_item)
+        record.send(:clear_changes_information)
         record
       end
 
@@ -210,7 +207,7 @@ module ActiveItem
         record
       end
 
-      # Callback DSL
+      # Callback DSL — :on option routes before_save/after_save to create/update
       def before_save(*args, &)
         options = args.extract_options!
         if options[:on]
@@ -236,15 +233,6 @@ module ActiveItem
           set_callback(:save, :after, *args, &)
         end
       end
-
-      def before_create(...) = set_callback(:create, :before, ...)
-      def after_create(...) = set_callback(:create, :after, ...)
-      def before_update(...) = set_callback(:update, :before, ...)
-      def after_update(...) = set_callback(:update, :after, ...)
-      def before_validation(...) = set_callback(:validation, :before, ...)
-      def after_validation(...) = set_callback(:validation, :after, ...)
-      def before_destroy(...) = set_callback(:destroy, :before, ...)
-      def after_destroy(...) = set_callback(:destroy, :after, ...)
 
       def scope(name, body)
         raise ArgumentError, 'scope body must be callable (Proc/Lambda)' unless body.respond_to?(:call)
@@ -298,13 +286,12 @@ module ActiveItem
       @created_at = fresh_record.created_at
       @updated_at = fresh_record.updated_at
       @dbrecord = fresh_record.dbrecord
-      @pending_changes = {}
-      @previously_changed = {}
+      clear_changes_information
       self
     end
 
     def has_changes_to_save?
-      changes.any?
+      changed?
     end
 
     def to_h
@@ -375,6 +362,7 @@ module ActiveItem
       return false if result == false
 
       changes_applied
+      @new_record = false
       true
     rescue StandardError => e
       dynamo_logger.error("Failed to save #{self.class.name}: #{e.message}")
@@ -445,34 +433,16 @@ module ActiveItem
     def assign_attributes(attributes)
       attributes.each do |key, value|
         setter = "#{key}="
-        next unless respond_to?(setter)
-
-        old_value = send(key)
-        @pending_changes[key.to_s] = [old_value, value] if old_value != value
-        send(setter, value)
+        send(setter, value) if respond_to?(setter)
       end
     end
 
     def attribute_changed?(attr_name)
-      @pending_changes.key?(attr_name.to_s)
+      super(attr_name.to_s)
     end
 
     def attribute_was(attr_name)
-      @pending_changes.dig(attr_name.to_s, 0)
-    end
-
-    def changes
-      @pending_changes
-    end
-
-    def previous_changes
-      @previously_changed
-    end
-
-    def changes_applied
-      @previously_changed = @pending_changes.dup
-      @pending_changes = {}
-      @new_record = false
+      attribute_in_database(attr_name.to_s)
     end
 
     def valid?(context = nil)
