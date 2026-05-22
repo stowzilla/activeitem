@@ -1,0 +1,35 @@
+AllCops:
+  TargetRubyVersion: 3.1
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - '*.gem'
+
+Layout/LineLength:
+  Max: 180
+
+Metrics:
+  Enabled: false
+
+Style/MultilineBlockChain:
+  Exclude:
+    - 'spec/**/*'
+
+Style/Documentation:
+  Enabled: true
+
+Style/OpenStructUse:
+  Exclude:
+    - 'spec/**/*'
+
+Naming/PredicatePrefix:
+  Enabled: false
+
+Naming/PredicateMethod:
+  Enabled: false
+
+Gemspec/DevelopmentDependencies:
+  Enabled: false
+  

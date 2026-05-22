@@ -148,7 +148,7 @@ RSpec.describe ActiveItem::Base do
       dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u1', 'email' => 'a@b.com' })
       dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u2', 'email' => 'c@d.com' })
 
-      results = model_class.batch_find(['u1', 'u2'])
+      results = model_class.batch_find(%w[u1 u2])
       expect(results.length).to eq(2)
     end
 

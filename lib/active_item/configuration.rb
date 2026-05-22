@@ -3,6 +3,8 @@
 require 'logger'
 
 module ActiveItem
+  # Holds global settings for ActiveItem including logger, table prefix, and
+  # environment. Used to derive DynamoDB table names from model class names.
   class Configuration
     attr_accessor :logger, :table_prefix, :environment
 

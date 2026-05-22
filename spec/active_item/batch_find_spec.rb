@@ -20,7 +20,7 @@ RSpec.describe 'ActiveItem batch_find' do
     dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
     dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w2', 'name' => 'Beta' })
 
-    results = model_class.batch_find(['w1', 'w2'])
+    results = model_class.batch_find(%w[w1 w2])
     expect(results.length).to eq(2)
     expect(results.map(&:name)).to contain_exactly('Alpha', 'Beta')
   end
@@ -32,7 +32,7 @@ RSpec.describe 'ActiveItem batch_find' do
   it 'silently skips IDs not found' do
     dynamo_client.put_item(table_name: 'test-dev-widgets', item: { 'id' => 'w1', 'name' => 'Alpha' })
 
-    results = model_class.batch_find(['w1', 'missing'])
+    results = model_class.batch_find(%w[w1 missing])
     expect(results.length).to eq(1)
     expect(results.first.name).to eq('Alpha')
   end

@@ -23,7 +23,8 @@ TABLES = {
   },
   'test-dev-events' => {
     gsis: [
-      { index_name: 'CustomerIndex', key_schema: [{ attribute_name: 'customerId', key_type: 'HASH' }, { attribute_name: 'createdAt', key_type: 'RANGE' }] }
+      { index_name: 'CustomerIndex',
+        key_schema: [{ attribute_name: 'customerId', key_type: 'HASH' }, { attribute_name: 'createdAt', key_type: 'RANGE' }] }
     ]
   },
   'test-dev-customers' => { gsis: [] },

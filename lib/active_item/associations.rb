@@ -5,6 +5,9 @@ require 'active_support/inflector'
 require_relative 'model_loader'
 
 module ActiveItem
+  # Provides has_many and belongs_to association macros with lazy loading,
+  # preloading support, and dependent record handling (destroy, nullify,
+  # restrict).
   module Associations
     extend ActiveSupport::Concern
     include ModelLoader
@@ -24,7 +27,7 @@ module ActiveItem
 
         case config[:dependent]
         when :restrict_with_exception
-          raise DeleteRestrictionError.new(name)
+          raise DeleteRestrictionError, name
         when :restrict_with_error
           error_message = config[:message] || "Cannot delete #{self.class.name} because dependent #{name} exist"
           errors.add(:base, error_message)
@@ -87,9 +90,7 @@ module ActiveItem
         )
 
         foreign_key_sym = foreign_key.to_sym
-        unless method_defined?(foreign_key_sym) || private_method_defined?(foreign_key_sym)
-          attr_accessor foreign_key_sym
-        end
+        attr_accessor foreign_key_sym unless method_defined?(foreign_key_sym) || private_method_defined?(foreign_key_sym)
 
         validates foreign_key_sym, presence: true unless optional
 
@@ -98,10 +99,10 @@ module ActiveItem
         define_method("#{association_name}=") { |record| set_belongs_to_association(association_name, record) }
 
         default_foreign_key = "#{association_name}_id"
-        if foreign_key.to_s != default_foreign_key
-          define_method(default_foreign_key) { send(foreign_key) }
-          define_method("#{default_foreign_key}=") { |value| send("#{foreign_key}=", value) }
-        end
+        return unless foreign_key.to_s != default_foreign_key
+
+        define_method(default_foreign_key) { send(foreign_key) }
+        define_method("#{default_foreign_key}=") { |value| send("#{foreign_key}=", value) }
       end
     end
 
@@ -111,19 +112,17 @@ module ActiveItem
       config = self.class._associations[name]
       return Relation.new(Object, conditions: { _empty: true }) unless config
 
-      if _preloaded_associations.key?(name)
-        return Relation.new(nil, preloaded_records: _preloaded_associations[name], class_name: config[:class_name])
-      end
+      return Relation.new(nil, preloaded_records: _preloaded_associations[name], class_name: config[:class_name]) if _preloaded_associations.key?(name)
 
       local_key_value = send(config[:primary_key])
       return Relation.new(nil, conditions: { _empty: true }, class_name: config[:class_name]) if local_key_value.nil?
 
       conditions = { config[:foreign_key].to_sym => local_key_value }
       relation = Relation.new(nil, conditions: conditions, index_name: config[:index],
-                              class_name: config[:class_name], owner: self)
+                                   class_name: config[:class_name], owner: self)
 
       if config[:scope]
-        if config[:scope].arity == 0
+        if config[:scope].arity.zero?
           relation.instance_exec(&config[:scope]) || relation
         else
           config[:scope].call(relation)
@@ -149,6 +148,7 @@ module ActiveItem
         record = klass.find(foreign_key_value)
       rescue ActiveItem::RecordNotFound
         raise unless config[:optional]
+
         record = nil
       end
       instance_variable_set(cache_var, record)

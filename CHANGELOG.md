@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.0.2
+
+### Fixed
+
+- Fix `set_created_timestamp` callback not setting `@created_at`, causing DynamoDB `Invalid attribute value type` errors on create
+- Fix duplicate `id=` method definition (Lint/DuplicateMethods) by using `attr_reader :id` with a custom setter
+- Fix duplicate `last` method definition in QueryHelpers
+- Fix duplicate branch in Relation `includes` case statement (Lint/DuplicateBranch)
+- Use `Comparable#clamp` in Pagination and Relation (Style/ComparableClamp)
+
+### Added
+
+- Documentation comments for all public modules and classes (Style/Documentation)
+- `--workdir` option to CI DynamoDB service for `act` compatibility
+
 ## 0.0.1
 
 - Initial release

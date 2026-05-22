@@ -20,9 +20,7 @@ module DynamoDBLocalHelper
 
     gsis.each do |gsi|
       gsi[:key_schema].each do |k|
-        unless attribute_definitions.any? { |ad| ad[:attribute_name] == k[:attribute_name] }
-          attribute_definitions << { attribute_name: k[:attribute_name], attribute_type: 'S' }
-        end
+        attribute_definitions << { attribute_name: k[:attribute_name], attribute_type: 'S' } unless attribute_definitions.any? { |ad| ad[:attribute_name] == k[:attribute_name] }
       end
     end
 
@@ -61,7 +59,7 @@ module DynamoDBLocalHelper
     key_attrs = desc.table.key_schema.map(&:attribute_name)
 
     scan.items.each do |item|
-      key = key_attrs.each_with_object({}) { |k, h| h[k] = item[k] }
+      key = key_attrs.to_h { |k| [k, item[k]] }
       client.delete_item(table_name: table_name, key: key)
     end
   end

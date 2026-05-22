@@ -20,7 +20,7 @@ RSpec.describe 'ActiveItem Relation#select' do
 
   it 'stores select_attributes on the relation' do
     relation = model_class.all.select(:name, :status)
-    expect(relation.select_attributes).to eq([:name, :status])
+    expect(relation.select_attributes).to eq(%i[name status])
   end
 
   it 'includes projection_expression in scan params via explain' do
@@ -35,7 +35,7 @@ RSpec.describe 'ActiveItem Relation#select' do
 
   it 'always includes primary key in projection' do
     result = model_class.where(name: 'test').select(:name).explain
-    proj = result[:params][:projection_expression]
+    result[:params][:projection_expression]
     names = result[:params][:expression_attribute_names]
 
     expect(names.values).to include('id')

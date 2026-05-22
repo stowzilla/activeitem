@@ -3,6 +3,8 @@
 require 'active_support/inflector'
 
 module ActiveItem
+  # Utility for resolving association class names to constants, attempting
+  # common model file paths when the constant is not yet loaded.
   module ModelLoader
     def safe_constantize_model(class_name)
       return class_name.constantize if Object.const_defined?(class_name)

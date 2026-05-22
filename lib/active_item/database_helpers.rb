@@ -3,6 +3,8 @@
 require 'set'
 
 module ActiveItem
+  # Low-level DynamoDB operations (get, put, delete, query, scan) with
+  # automatic pagination and access-denied error wrapping.
   module DatabaseHelpers
     def get(key)
       response = dynamodb.get_item(table_name: table_name, key: key)
@@ -78,7 +80,7 @@ module ActiveItem
 
     def raise_access_denied(operation, original_error)
       raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
-                                                operation: operation, original_error: original_error)
+                                              operation: operation, original_error: original_error)
     end
   end
 end

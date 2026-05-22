@@ -103,9 +103,9 @@ RSpec.describe ActiveItem::ComposedOf do
 
     it 'populates composed attributes from DynamoDB item' do
       dynamo_client.put_item(table_name: 'test-dev-customers', item: {
-        'id' => 'c1', 'name' => 'Bob',
-        'address' => { 'street' => '999 Elm', 'city' => 'Jax', 'state' => 'FL', 'zipCode' => '32099' }
-      })
+                               'id' => 'c1', 'name' => 'Bob',
+                               'address' => { 'street' => '999 Elm', 'city' => 'Jax', 'state' => 'FL', 'zipCode' => '32099' }
+                             })
 
       record = model_class.find('c1')
       expect(record.address).to be_a(Address)

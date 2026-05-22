@@ -10,6 +10,9 @@ require 'active_model'
 require 'securerandom'
 
 module ActiveItem
+  # Base class for all ActiveItem models. Provides persistence, callbacks,
+  # validations, dirty tracking, and an ActiveRecord-like interface for
+  # DynamoDB tables.
   class Base
     include ActiveModel::Validations
     include ActiveSupport::Callbacks
@@ -29,7 +32,8 @@ module ActiveItem
     define_callbacks :save, :create, :update, :destroy, :validation
     define_model_callbacks :initialize, only: :after
 
-    attr_accessor :id, :created_at, :updated_at, :dbrecord
+    attr_reader :id
+    attr_accessor :created_at, :updated_at, :dbrecord
 
     def id=(value)
       @id = (value.to_s.strip.empty? ? nil : value)
@@ -46,11 +50,11 @@ module ActiveItem
       @_preloaded_associations = {}
       @new_record = true
 
-      if attributes.is_a?(Hash)
-        attributes.each do |key, value|
-          setter = "#{key}="
-          send(setter, value) if respond_to?(setter)
-        end
+      return unless attributes.is_a?(Hash)
+
+      attributes.each do |key, value|
+        setter = "#{key}="
+        send(setter, value) if respond_to?(setter)
       end
     end
 
@@ -63,9 +67,7 @@ module ActiveItem
     end
 
     def self.attribute_names
-      @attribute_names ||= begin
-        instance_methods.grep(/\A[a-z_][a-z0-9_]*=\z/).map { |m| m.to_s.chomp('=') }.sort
-      end
+      @attribute_names ||= instance_methods.grep(/\A[a-z_][a-z0-9_]*=\z/).map { |m| m.to_s.chomp('=') }.sort
     end
 
     def populate_attributes_from_item(item)
@@ -75,11 +77,11 @@ module ActiveItem
         value = nil
         found = false
         self.class.dynamo_key_variants(attr_name).each do |key|
-          if item.key?(key)
-            value = item[key]
-            found = true
-            break
-          end
+          next unless item.key?(key)
+
+          value = item[key]
+          found = true
+          break
         end
 
         instance_variable_set("@#{attr_name}", value) if found
@@ -105,11 +107,11 @@ module ActiveItem
             old_value = instance_variable_get("@#{attr_name}")
             instance_variable_set("@#{attr_name}", value)
 
-            if old_value != value && instance_variable_defined?(:@pending_changes)
-              @pending_changes ||= {}
-              @pending_changes[attr_name] ||= [old_value, nil]
-              @pending_changes[attr_name][1] = value
-            end
+            return unless old_value != value && instance_variable_defined?(:@pending_changes)
+
+            @pending_changes ||= {}
+            @pending_changes[attr_name] ||= [old_value, nil]
+            @pending_changes[attr_name][1] = value
           end
         end
       end
@@ -120,12 +122,12 @@ module ActiveItem
 
       def primary_key=(value)
         remove_method primary_key.to_sym
-        remove_method "#{primary_key}=".to_sym
+        remove_method :"#{primary_key}="
 
         @primary_key = value.to_s
 
         alias_method primary_key.to_sym, :id
-        alias_method "#{primary_key}=".to_sym, :id=
+        alias_method :"#{primary_key}=", :id=
       end
 
       def table_name
@@ -140,9 +142,7 @@ module ActiveItem
         @dynamodb ||= Aws::DynamoDB::Client.new(http_wire_trace: false)
       end
 
-      def dynamodb=(client)
-        @dynamodb = client
-      end
+      attr_writer :dynamodb
 
       def dynamo_attribute_map(mappings = nil)
         if mappings
@@ -155,6 +155,7 @@ module ActiveItem
       def to_dynamo_key(attr_name)
         attr_str = attr_name.to_s
         return dynamo_attribute_map[attr_str] if dynamo_attribute_map.key?(attr_str)
+
         attr_str.camelize(:lower)
       end
 
@@ -162,6 +163,7 @@ module ActiveItem
         key_str = dynamo_key.to_s
         reverse_map = dynamo_attribute_map.invert
         return reverse_map[key_str] if reverse_map.key?(key_str)
+
         key_str.underscore
       end
 
@@ -176,7 +178,7 @@ module ActiveItem
         normalized_item = normalize_dynamodb_values(item)
 
         record = allocate
-        record.instance_variable_set(:@id, normalized_item[self.primary_key])
+        record.instance_variable_set(:@id, normalized_item[primary_key])
         record.send(:populate_attributes_from_item, normalized_item)
         record.instance_variable_set(:@new_record, false)
         record.instance_variable_set(:@previously_changed, {})
@@ -209,43 +211,44 @@ module ActiveItem
       end
 
       # Callback DSL
-      def before_save(*args, &block)
+      def before_save(*args, &)
         options = args.extract_options!
         if options[:on]
           case options[:on].to_sym
-          when :create then set_callback(:create, :before, *args, &block)
-          when :update then set_callback(:update, :before, *args, &block)
+          when :create then set_callback(:create, :before, *args, &)
+          when :update then set_callback(:update, :before, *args, &)
           else raise ArgumentError, "Invalid on: option '#{options[:on]}'. Must be :create or :update"
           end
         else
-          set_callback(:save, :before, *args, &block)
+          set_callback(:save, :before, *args, &)
         end
       end
 
-      def after_save(*args, &block)
+      def after_save(*args, &)
         options = args.extract_options!
         if options[:on]
           case options[:on].to_sym
-          when :create then set_callback(:create, :after, *args, &block)
-          when :update then set_callback(:update, :after, *args, &block)
+          when :create then set_callback(:create, :after, *args, &)
+          when :update then set_callback(:update, :after, *args, &)
           else raise ArgumentError, "Invalid on: option '#{options[:on]}'. Must be :create or :update"
           end
         else
-          set_callback(:save, :after, *args, &block)
+          set_callback(:save, :after, *args, &)
         end
       end
 
-      def before_create(*args, &block) = set_callback(:create, :before, *args, &block)
-      def after_create(*args, &block) = set_callback(:create, :after, *args, &block)
-      def before_update(*args, &block) = set_callback(:update, :before, *args, &block)
-      def after_update(*args, &block) = set_callback(:update, :after, *args, &block)
-      def before_validation(*args, &block) = set_callback(:validation, :before, *args, &block)
-      def after_validation(*args, &block) = set_callback(:validation, :after, *args, &block)
-      def before_destroy(*args, &block) = set_callback(:destroy, :before, *args, &block)
-      def after_destroy(*args, &block) = set_callback(:destroy, :after, *args, &block)
+      def before_create(...) = set_callback(:create, :before, ...)
+      def after_create(...) = set_callback(:create, :after, ...)
+      def before_update(...) = set_callback(:update, :before, ...)
+      def after_update(...) = set_callback(:update, :after, ...)
+      def before_validation(...) = set_callback(:validation, :before, ...)
+      def after_validation(...) = set_callback(:validation, :after, ...)
+      def before_destroy(...) = set_callback(:destroy, :before, ...)
+      def after_destroy(...) = set_callback(:destroy, :after, ...)
 
       def scope(name, body)
-        raise ArgumentError, "scope body must be callable (Proc/Lambda)" unless body.respond_to?(:call)
+        raise ArgumentError, 'scope body must be callable (Proc/Lambda)' unless body.respond_to?(:call)
+
         _scopes[name.to_sym] = body
         define_singleton_method(name) { all.instance_exec(&body) }
       end
@@ -257,7 +260,8 @@ module ActiveItem
       private
 
       def default_table_name
-        raise "Cannot generate table name for anonymous class" unless name
+        raise 'Cannot generate table name for anonymous class' unless name
+
         ActiveItem.configuration.table_name_for(name)
       end
 
@@ -265,7 +269,7 @@ module ActiveItem
         super
         subclass.class_eval do
           alias_method primary_key.to_sym, :id
-          alias_method "#{primary_key}=".to_sym, :id=
+          alias_method :"#{primary_key}=", :id=
         end
       end
     end
@@ -279,12 +283,14 @@ module ActiveItem
     end
 
     def reload
-      raise "Cannot reload a new record" if new_record?
+      raise 'Cannot reload a new record' if new_record?
+
       fresh_record = self.class.find(id)
       raise "Record not found: #{self.class.name} with id #{id}" unless fresh_record
 
       self.class.attribute_names.each do |attr_name|
         next if attr_name == 'dbrecord'
+
         value = fresh_record.instance_variable_get("@#{attr_name}")
         instance_variable_set("@#{attr_name}", value)
       end
@@ -308,12 +314,17 @@ module ActiveItem
     def attributes
       attrs = {}
       pk_name = self.class.primary_key
-      pk_value = send(pk_name) rescue instance_variable_get("@#{pk_name}")
+      pk_value = begin
+        send(pk_name)
+      rescue StandardError
+        instance_variable_get("@#{pk_name}")
+      end
       attrs['id'] = pk_value
       attrs[pk_name] = pk_value
 
       self.class.attribute_names.each do |attr_name|
         next if attr_name == 'dbrecord'
+
         value = instance_variable_get("@#{attr_name}")
         attrs[attr_name] = value unless value.nil?
       end
@@ -324,11 +335,17 @@ module ActiveItem
     end
 
     def inspect
-      pk_value = send(self.class.primary_key) rescue id
+      begin
+        send(self.class.primary_key)
+      rescue StandardError
+        id
+      end
       attr_strs = self.class.attribute_names.filter_map do |attr|
         next if attr == 'dbrecord'
+
         value = instance_variable_get("@#{attr}")
         next if value.nil?
+
         "#{attr}: #{value.inspect}"
       end
       "#<#{self.class.name} #{attr_strs.join(', ')}>"
@@ -356,9 +373,10 @@ module ActiveItem
       end
 
       return false if result == false
+
       changes_applied
       true
-    rescue => e
+    rescue StandardError => e
       dynamo_logger.error("Failed to save #{self.class.name}: #{e.message}")
       raise e
     end
@@ -406,10 +424,11 @@ module ActiveItem
     def destroy
       result = run_callbacks(:destroy) { perform_destroy }
       return false if result == false
+
       true
     rescue DeleteRestrictionError
       false
-    rescue => e
+    rescue StandardError => e
       dynamo_logger.error("Failed to destroy #{self.class.name}: #{e.message}")
       errors.add(:base, e.message)
       false
@@ -418,7 +437,7 @@ module ActiveItem
     def delete
       perform_destroy
       true
-    rescue => e
+    rescue StandardError => e
       dynamo_logger.error("Failed to delete #{self.class.name}: #{e.message}")
       false
     end
@@ -426,11 +445,11 @@ module ActiveItem
     def assign_attributes(attributes)
       attributes.each do |key, value|
         setter = "#{key}="
-        if respond_to?(setter)
-          old_value = send(key)
-          @pending_changes[key.to_s] = [old_value, value] if old_value != value
-          send(setter, value)
-        end
+        next unless respond_to?(setter)
+
+        old_value = send(key)
+        @pending_changes[key.to_s] = [old_value, value] if old_value != value
+        send(setter, value)
       end
     end
 
@@ -457,7 +476,7 @@ module ActiveItem
     end
 
     def valid?(context = nil)
-      return super(context) if defined?(@running_validations) && @running_validations
+      return super if defined?(@running_validations) && @running_validations
 
       @running_validations = true
       begin
@@ -508,11 +527,11 @@ module ActiveItem
 
       dynamo_logger.info("#{self.class.name} created (#{self.class.primary_key}: #{id})")
     rescue Aws::DynamoDB::Errors::ConditionalCheckFailedException
-      errors.add(:id, "already exists")
+      errors.add(:id, 'already exists')
       false
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
-                                                operation: 'PutItem', original_error: e)
+                                              operation: 'PutItem', original_error: e)
     end
 
     def build_dynamodb_item
@@ -521,6 +540,7 @@ module ActiveItem
       dynamodb_attributes.each do |attr|
         value = instance_variable_get("@#{attr}")
         next if value.nil?
+
         dynamo_key = self.class.to_dynamo_key(attr)
         item[dynamo_key] = value
       end
@@ -559,7 +579,7 @@ module ActiveItem
         end
       end
 
-      update_parts << "updatedAt = :updatedAt"
+      update_parts << 'updatedAt = :updatedAt'
       attr_values[':updatedAt'] = Time.now.utc.iso8601
 
       update_expression = "SET #{update_parts.join(', ')}"
@@ -576,7 +596,7 @@ module ActiveItem
       dynamodb.update_item(params)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
-                                                operation: 'UpdateItem', original_error: e)
+                                              operation: 'UpdateItem', original_error: e)
     end
 
     def perform_destroy
@@ -585,7 +605,7 @@ module ActiveItem
       dynamo_logger.info("#{self.class.name} deleted (#{key}: #{send(key)})")
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
-                                                operation: 'DeleteItem', original_error: e)
+                                              operation: 'DeleteItem', original_error: e)
     end
   end
 end

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module ActiveItem
+  # Wraps DynamoDB TransactWriteItems, allowing multiple put, update, and
+  # delete operations to be committed atomically (up to 100 items).
   class Transaction
     MAX_ITEMS = 100
 
@@ -57,7 +59,7 @@ module ActiveItem
         end
       end
 
-      set_parts << "updatedAt = :ts"
+      set_parts << 'updatedAt = :ts'
       attr_values[':ts'] = Time.now.utc.iso8601
 
       update_expression = "SET #{set_parts.join(', ')}"

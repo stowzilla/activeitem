@@ -1,4 +1,4 @@
-# encoding: utf-8
+# frozen_string_literal: true
 
 require_relative 'model_loader'
 require_relative 'pagination'
@@ -10,9 +10,11 @@ module ActiveItem
     include Enumerable
     include ModelLoader
 
-    attr_reader :model, :conditions, :index_name, :limit_value, :not_conditions, :ilike, :ilike_exact, :class_name, :owner, :includes_associations, :order_direction, :select_attributes
+    attr_reader :model, :conditions, :index_name, :limit_value, :not_conditions, :ilike, :ilike_exact, :class_name, :owner, :includes_associations,
+                :order_direction, :select_attributes
 
-    def initialize(model, conditions: {}, index_name: nil, limit_value: nil, not_conditions: {}, ilike: false, ilike_exact: false, class_name: nil, owner: nil, preloaded_records: nil, includes_associations: [], order_direction: nil, select_attributes: nil)
+    def initialize(model, conditions: {}, index_name: nil, limit_value: nil, not_conditions: {}, ilike: false, ilike_exact: false, class_name: nil,
+                   owner: nil, preloaded_records: nil, includes_associations: [], order_direction: nil, select_attributes: nil)
       @model = model
       @class_name = class_name  # For lazy loading
       @owner = owner            # The object that owns this association
@@ -20,13 +22,13 @@ module ActiveItem
       @index_name = index_name
       @limit_value = limit_value
       @not_conditions = not_conditions.dup
-      @ilike = ilike           # Use case-insensitive contains() for string conditions
-      @ilike_exact = ilike_exact  # Require exact case-insensitive match (Ruby-side filter)
+      @ilike = ilike # Use case-insensitive contains() for string conditions
+      @ilike_exact = ilike_exact # Require exact case-insensitive match (Ruby-side filter)
       @loaded = preloaded_records ? true : false
       @records = preloaded_records
       @includes_associations = includes_associations
-      @order_direction = order_direction  # :asc or :desc for DynamoDB ScanIndexForward
-      @select_attributes = select_attributes  # Projection expression attributes
+      @order_direction = order_direction # :asc or :desc for DynamoDB ScanIndexForward
+      @select_attributes = select_attributes # Projection expression attributes
     end
 
     # Chainable includes - preload associations to avoid N+1 queries
@@ -49,8 +51,6 @@ module ActiveItem
         case assoc
         when Symbol
           new_includes << assoc unless new_includes.include?(assoc)
-        when Hash
-          new_includes << assoc
         else
           new_includes << assoc
         end
@@ -131,9 +131,9 @@ module ActiveItem
     # @example Enumerable filtering (block)
     #   InventoryItem.where(customer_id: id).select { |i| i.active? }
     #
-    def select(*attrs, &block)
+    def select(*attrs, &)
       if block_given?
-        super(&block)
+        super(&)
       else
         spawn(select_attributes: attrs.map(&:to_sym))
       end
@@ -155,7 +155,7 @@ module ActiveItem
     #   result = Model.where(status: 'active').page(params[:cursor], per_page: 25)
     #
     def page(cursor = nil, per_page: Pagination::DEFAULT_PER_PAGE)
-      per_page = [[per_page.to_i, 1].max, Pagination::MAX_PER_PAGE].min
+      per_page = per_page.to_i.clamp(1, Pagination::MAX_PER_PAGE)
 
       items, next_cursor = execute_paginated_query(cursor, per_page)
       if includes_associations.any?
@@ -181,9 +181,9 @@ module ActiveItem
     end
 
     # Execute query and iterate over results
-    def each(&block)
+    def each(&)
       load_records
-      @records.each(&block)
+      @records.each(&)
     end
 
     # Get first record
@@ -206,10 +206,10 @@ module ActiveItem
     # @example With block (Rails-like)
     #   Pickup.all.count { |p| p.time_slot == "10-12" }  # => 3
     #
-    def count(&block)
+    def count(&)
       if block_given? || ilike || ilike_exact
         load_records
-        return block_given? ? @records.count(&block) : @records.length
+        return block_given? ? @records.count(&) : @records.length
       end
 
       return @records.length if @loaded
@@ -222,7 +222,7 @@ module ActiveItem
       load_records
       @records.length
     end
-    alias_method :size, :length
+    alias size length
 
     # Check if any records exist
     def any?
@@ -231,7 +231,7 @@ module ActiveItem
 
     # Check if no records exist
     def empty?
-      count == 0
+      count.zero?
     end
 
     # Check if records exist matching optional conditions
@@ -248,7 +248,7 @@ module ActiveItem
       load_records
       @records
     end
-    alias_method :to_ary, :to_a
+    alias to_ary to_a
 
     # Re-fetch full records from the main table via batch_find, or return
     # already-loaded records if the initial query returned full items.
@@ -268,7 +268,7 @@ module ActiveItem
       # Check if records already have full attributes (not just keys)
       # A KEYS_ONLY GSI record will only have the primary key + sort key attributes
       sample = records.first
-      attr_count = sample.class.attribute_names.count { |a| sample.instance_variable_get("@#{a}") != nil }
+      attr_count = sample.class.attribute_names.count { |a| !sample.instance_variable_get("@#{a}").nil? }
 
       # If the record has more than just the key attributes, it's already fully hydrated
       return records if attr_count > 2
@@ -305,10 +305,10 @@ module ActiveItem
     # @example Find by block
     #   User.where(status: 'active').find { |u| u.email.include?('@example.com') }
     #
-    def find(id = nil, &block)
+    def find(id = nil, &)
       if block_given?
         # Delegate to Enumerable#find when block is given (Rails behavior)
-        to_a.find(&block)
+        to_a.find(&)
       elsif id
         # Use direct GetItem instead of scanning — O(1) vs O(n)
         record = resolved_model.find(id)
@@ -391,9 +391,7 @@ module ActiveItem
       return { operation: :none, reason: 'empty relation' } if conditions[:_empty]
 
       normalized_conditions = normalize_conditions(conditions)
-      effective_index = if normalized_conditions.any?
-        index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
-      end
+      effective_index = (index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions) if normalized_conditions.any?)
 
       if normalized_conditions.empty? && not_conditions.empty?
         params = { table_name: resolved_model.table_name }
@@ -418,14 +416,14 @@ module ActiveItem
         parts = []
         parts << "conditions=#{conditions.inspect}" if conditions.any?
         parts << "not_conditions=#{not_conditions.inspect}" if not_conditions.any?
-        parts << "ilike=true" if ilike
-        parts << "exact=true" if ilike_exact
+        parts << 'ilike=true' if ilike
+        parts << 'exact=true' if ilike_exact
         "#<#{self.class.name} (not loaded) #{parts.join(' ')}>"
       end
     end
 
     # Forward named scope calls to the model's scope registry
-    def method_missing(method_name, *args, &block)
+    def method_missing(method_name, *args, &)
       if resolved_model.respond_to?(:_scopes) && resolved_model._scopes.key?(method_name)
         instance_exec(&resolved_model._scopes[method_name])
       else
@@ -465,7 +463,7 @@ module ActiveItem
       return Object unless @class_name
 
       # Lazy load the class when first needed
-      @model ||= safe_constantize_model(@class_name)
+      @resolved_model ||= safe_constantize_model(@class_name)
     end
 
     # Apply Ruby-side filter for case-insensitive matching
@@ -520,7 +518,7 @@ module ActiveItem
       end
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
-                                                operation: 'PaginatedQuery', original_error: e)
+                                              operation: 'PaginatedQuery', original_error: e)
     end
 
     # Decode Base64 cursor to DynamoDB LastEvaluatedKey
@@ -555,7 +553,7 @@ module ActiveItem
       params = {
         table_name: resolved_model.table_name,
         index_name: idx_name,
-        key_condition_expression: "#pk = :pk_val",
+        key_condition_expression: '#pk = :pk_val',
         expression_attribute_names: { '#pk' => dynamo_partition_key },
         expression_attribute_values: { ':pk_val' => partition_value },
         limit: per_page
@@ -569,14 +567,14 @@ module ActiveItem
       remaining_conditions = conditions.to_a[1..]
 
       if sort_key && remaining_conditions.any?
-        sort_condition = remaining_conditions.find { |k, _|
+        sort_condition = remaining_conditions.find do |k, _|
           resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-        }
+        end
         if sort_condition
           _, sort_value = sort_condition
-          remaining_conditions = remaining_conditions.reject { |k, _|
+          remaining_conditions = remaining_conditions.reject do |k, _|
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-          }
+          end
 
           if sort_value.is_a?(Range)
             range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
@@ -584,7 +582,7 @@ module ActiveItem
             params[:expression_attribute_names].merge!(range_condition[:names])
             params[:expression_attribute_values].merge!(range_condition[:values])
           else
-            params[:key_condition_expression] += " AND #sk = :sk_val"
+            params[:key_condition_expression] += ' AND #sk = :sk_val'
             params[:expression_attribute_names]['#sk'] = sort_key
             params[:expression_attribute_values][':sk_val'] = sort_value
           end
@@ -712,25 +710,25 @@ module ActiveItem
       normalized_conditions = normalize_conditions(conditions)
 
       records = if normalized_conditions.empty? && not_conditions.empty?
-        # Direct scan - don't call model.all to avoid recursion
-        items = resolved_model.scan(limit: limit_value)
-        items.map { |item| resolved_model.instantiate(item) }
-      else
-        # Determine index to use (use normalized conditions)
-        effective_index = index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
+                  # Direct scan - don't call model.all to avoid recursion
+                  items = resolved_model.scan(limit: limit_value)
+                  items.map { |item| resolved_model.instantiate(item) }
+                else
+                  # Determine index to use (use normalized conditions)
+                  effective_index = index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
 
-        if effective_index && normalized_conditions.any?
-          query_with_index_normalized(effective_index, normalized_conditions)
-        else
-          scan_with_conditions_normalized(normalized_conditions)
-        end
-      end
+                  if effective_index && normalized_conditions.any?
+                    query_with_index_normalized(effective_index, normalized_conditions)
+                  else
+                    scan_with_conditions_normalized(normalized_conditions)
+                  end
+                end
 
       # Apply Ruby-side filter for case-insensitive matching
       apply_ilike_filter(records)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
-                                                operation: 'Query/Scan', original_error: e)
+                                              operation: 'Query/Scan', original_error: e)
     end
 
     # Execute a count-only query using DynamoDB SELECT: 'COUNT'
@@ -740,26 +738,24 @@ module ActiveItem
 
       normalized_conditions = normalize_conditions(conditions)
 
-      effective_index = if normalized_conditions.any?
-        index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
-      end
+      effective_index = (index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions) if normalized_conditions.any?)
 
       total = 0
       exclusive_start_key = nil
 
       loop do
         params = if effective_index && normalized_conditions.any?
-          build_count_query_params(effective_index, normalized_conditions)
-        else
-          build_count_scan_params(normalized_conditions)
-        end
+                   build_count_query_params(effective_index, normalized_conditions)
+                 else
+                   build_count_scan_params(normalized_conditions)
+                 end
         params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
 
         response = if effective_index && normalized_conditions.any?
-          resolved_model.dynamodb.query(params)
-        else
-          resolved_model.dynamodb.scan(params)
-        end
+                     resolved_model.dynamodb.query(params)
+                   else
+                     resolved_model.dynamodb.scan(params)
+                   end
 
         total += response.count
         exclusive_start_key = response.last_evaluated_key
@@ -769,8 +765,9 @@ module ActiveItem
       total
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
-                                                operation: 'Count', original_error: e)
+                                              operation: 'Count', original_error: e)
     end
+
     def build_count_query_params(idx_name, normalized_conditions)
       ruby_partition_key = normalized_conditions.keys.first.to_s
       partition_value = normalized_conditions.values.first
@@ -792,14 +789,14 @@ module ActiveItem
       remaining_conditions = conditions.to_a[1..]
 
       if sort_key && remaining_conditions.any?
-        sort_condition = remaining_conditions.find { |k, _|
+        sort_condition = remaining_conditions.find do |k, _|
           resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-        }
+        end
         if sort_condition
           _, sort_value = sort_condition
-          remaining_conditions = remaining_conditions.reject { |k, _|
+          remaining_conditions = remaining_conditions.reject do |k, _|
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-          }
+          end
 
           if sort_value.is_a?(Range)
             range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
@@ -807,7 +804,7 @@ module ActiveItem
             params[:expression_attribute_names].merge!(range_condition[:names])
             params[:expression_attribute_values].merge!(range_condition[:values])
           else
-            params[:key_condition_expression] += " AND #sk = :sk_val"
+            params[:key_condition_expression] += ' AND #sk = :sk_val'
             params[:expression_attribute_names]['#sk'] = sort_key
             params[:expression_attribute_values][':sk_val'] = sort_value
           end
@@ -877,7 +874,7 @@ module ActiveItem
       params = {
         table_name: resolved_model.table_name,
         index_name: idx_name,
-        key_condition_expression: "#pk = :pk_val",
+        key_condition_expression: '#pk = :pk_val',
         expression_attribute_names: { '#pk' => dynamo_partition_key },
         expression_attribute_values: { ':pk_val' => partition_value }
       }
@@ -886,14 +883,14 @@ module ActiveItem
       remaining_conditions = conditions.to_a[1..]
 
       if sort_key && remaining_conditions.any?
-        sort_condition = remaining_conditions.find { |k, _|
+        sort_condition = remaining_conditions.find do |k, _|
           resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-        }
+        end
         if sort_condition
           _, sort_value = sort_condition
-          remaining_conditions = remaining_conditions.reject { |k, _|
+          remaining_conditions = remaining_conditions.reject do |k, _|
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-          }
+          end
 
           if sort_value.is_a?(Range)
             range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
@@ -901,7 +898,7 @@ module ActiveItem
             params[:expression_attribute_names].merge!(range_condition[:names])
             params[:expression_attribute_values].merge!(range_condition[:values])
           else
-            params[:key_condition_expression] += " AND #sk = :sk_val"
+            params[:key_condition_expression] += ' AND #sk = :sk_val'
             params[:expression_attribute_names]['#sk'] = sort_key
             params[:expression_attribute_values][':sk_val'] = sort_value
           end
@@ -1007,7 +1004,7 @@ module ActiveItem
       foreign_key = association_config[:foreign_key]
 
       # If the foreign key is different from the attribute name, return it
-      foreign_key.to_s != attr_name ? foreign_key.to_s : nil
+      foreign_key.to_s == attr_name ? nil : foreign_key.to_s
     end
 
     def query_with_index_normalized(idx_name, normalized_conditions)
@@ -1020,18 +1017,14 @@ module ActiveItem
       index_config = resolved_model.indexes[idx_name] || {}
       dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
-      if partition_value.is_a?(Array)
-        raise ArgumentError, "Array values not supported for partition key queries. Use scan instead."
-      end
+      raise ArgumentError, 'Array values not supported for partition key queries. Use scan instead.' if partition_value.is_a?(Array)
 
-      if partition_value.is_a?(Range)
-        raise ArgumentError, "Range values not supported for partition key queries. Use scan instead."
-      end
+      raise ArgumentError, 'Range values not supported for partition key queries. Use scan instead.' if partition_value.is_a?(Range)
 
       params = {
         table_name: resolved_model.table_name,
         index_name: idx_name,
-        key_condition_expression: "#pk = :pk_val",
+        key_condition_expression: '#pk = :pk_val',
         expression_attribute_names: { '#pk' => dynamo_partition_key },
         expression_attribute_values: { ':pk_val' => partition_value }
       }
@@ -1043,14 +1036,14 @@ module ActiveItem
 
       if sort_key && remaining_conditions.any?
         # Find the sort key condition by matching the DynamoDB key name
-        sort_condition = remaining_conditions.find { |k, _|
+        sort_condition = remaining_conditions.find do |k, _|
           resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-        }
+        end
         if sort_condition
           _, sort_value = sort_condition
-          remaining_conditions = remaining_conditions.reject { |k, _|
+          remaining_conditions = remaining_conditions.reject do |k, _|
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
-          }
+          end
 
           if sort_value.is_a?(Range)
             range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
@@ -1058,7 +1051,7 @@ module ActiveItem
             params[:expression_attribute_names].merge!(range_condition[:names])
             params[:expression_attribute_values].merge!(range_condition[:values])
           else
-            params[:key_condition_expression] += " AND #sk = :sk_val"
+            params[:key_condition_expression] += ' AND #sk = :sk_val'
             params[:expression_attribute_names]['#sk'] = sort_key
             params[:expression_attribute_values][':sk_val'] = sort_value
           end
@@ -1163,7 +1156,7 @@ module ActiveItem
 
       # Always include the raw primary key if it differs from 'id'
       unless names.values.include?(pk)
-        placeholder = "#proj_pk"
+        placeholder = '#proj_pk'
         names[placeholder] = pk
         placeholders << placeholder
       end
@@ -1197,9 +1190,7 @@ module ActiveItem
       dynamo_attr = resolved_model.to_dynamo_key(attr_str)
 
       # Handle nil - use attribute_exists (opposite of attribute_not_exists)
-      if val.nil?
-        return ["attribute_exists(#attr#{idx})", { "#attr#{idx}" => dynamo_attr }, {}]
-      end
+      return ["attribute_exists(#attr#{idx})", { "#attr#{idx}" => dynamo_attr }, {}] if val.nil?
 
       # Handle array values (NOT IN)
       if val.is_a?(Array)
@@ -1259,7 +1250,11 @@ module ActiveItem
 
       case mode
       when :count
-        raise ArgumentError, "count preloading only supported for has_many (got #{assoc_config[:type]} for #{assoc_name})" unless assoc_config[:type] == :has_many
+        unless assoc_config[:type] == :has_many
+          raise ArgumentError,
+                "count preloading only supported for has_many (got #{assoc_config[:type]} for #{assoc_name})"
+        end
+
         preload_has_many_counts(records, assoc_name, assoc_config)
       when :records
         preload_symbol_association(records, assoc_name)
@@ -1278,7 +1273,7 @@ module ActiveItem
       return if foreign_ids.empty?
 
       # Batch load associated records
-      associated_records = assoc_class.batch_find(foreign_ids).index_by(&:id)
+      associated_records = assoc_class.batch_find(foreign_ids).to_h { |r| [r.id, r] }
 
       # Cache associations on each record
       records.each do |record|
@@ -1311,18 +1306,18 @@ module ActiveItem
       end
 
       counts_by_parent = if assoc_class == resolved_model && conditions.empty? && not_conditions.empty? && !@_paginated
-        # Self-referential with full table loaded — count in memory
-        tally = Hash.new(0)
-        records.each do |r|
-          fk_val = r.send(foreign_key)
-          tally[fk_val] += 1 if fk_val && parent_ids.include?(fk_val)
-        end
-        tally
-      elsif index_name
-        query_counts_via_index(assoc_class, index_name, dynamo_fk, parent_ids)
-      else
-        scan_and_count_foreign_keys(assoc_class, dynamo_fk, parent_ids)
-      end
+                           # Self-referential with full table loaded — count in memory
+                           tally = Hash.new(0)
+                           records.each do |r|
+                             fk_val = r.send(foreign_key)
+                             tally[fk_val] += 1 if fk_val && parent_ids.include?(fk_val)
+                           end
+                           tally
+                         elsif index_name
+                           query_counts_via_index(assoc_class, index_name, dynamo_fk, parent_ids)
+                         else
+                           scan_and_count_foreign_keys(assoc_class, dynamo_fk, parent_ids)
+                         end
 
       records.each do |record|
         pk_value = record.send(local_key)
@@ -1437,9 +1432,9 @@ module ActiveItem
       parent_ids.each_slice(max_concurrency) do |batch|
         threads = batch.map do |pk_value|
           Thread.new do
-            items = if index_name
-              all_items = []
-              exclusive_start_key = nil
+            all_items = []
+            exclusive_start_key = nil
+            if index_name
               loop do
                 params = {
                   table_name: assoc_class.table_name, index_name: index_name,
@@ -1453,10 +1448,7 @@ module ActiveItem
                 exclusive_start_key = response.last_evaluated_key
                 break unless exclusive_start_key
               end
-              all_items
             else
-              all_items = []
-              exclusive_start_key = nil
               loop do
                 params = {
                   table_name: assoc_class.table_name,
@@ -1470,8 +1462,8 @@ module ActiveItem
                 exclusive_start_key = response.last_evaluated_key
                 break unless exclusive_start_key
               end
-              all_items
             end
+            items = all_items
 
             instantiated = items.map { |item| assoc_class.instantiate(item) }
             mutex.synchronize { records_by_parent[pk_value] = instantiated }

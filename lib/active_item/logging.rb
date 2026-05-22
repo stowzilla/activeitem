@@ -9,6 +9,8 @@ module ActiveItem
     def debug(*); end
   end
 
+  # Provides a +dynamo_logger+ helper that delegates to the globally
+  # configured ActiveItem logger.
   module Logging
     private
 

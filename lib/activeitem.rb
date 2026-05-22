@@ -14,6 +14,9 @@ require_relative 'active_item/transaction'
 require_relative 'active_item/pagination'
 require_relative 'active_item/base'
 
+# ActiveRecord-style ORM for Amazon DynamoDB.
+# Provides model definitions, validations, associations, querying, and
+# pagination backed by the DynamoDB API.
 module ActiveItem
   class << self
     def configuration

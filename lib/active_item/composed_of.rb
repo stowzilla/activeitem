@@ -3,6 +3,9 @@
 require 'active_support/concern'
 
 module ActiveItem
+  # Implements value object composition, allowing models to aggregate multiple
+  # attributes into a single nested DynamoDB map and expose them as a Ruby
+  # value object.
   module ComposedOf
     extend ActiveSupport::Concern
 
@@ -11,22 +14,22 @@ module ActiveItem
         dynamo_key = self.class.to_dynamo_key(part_id.to_s)
         vo_class = Object.const_get(config[:class_name])
 
-        if item[dynamo_key].is_a?(Hash)
-          vo = if vo_class.respond_to?(:from_dynamo_map)
-                 vo_class.from_dynamo_map(item[dynamo_key])
-               else
-                 kwargs = {}
-                 config[:mapping].each do |_model_attr, vo_attr|
-                   key = self.class.to_dynamo_key(vo_attr.to_s)
-                   kwargs[vo_attr] = item[dynamo_key][key] || item[dynamo_key][vo_attr.to_s]
-                 end
-                 vo_class.new(**kwargs)
-               end
+        next unless item[dynamo_key].is_a?(Hash)
 
-          instance_variable_set("@_composed_#{part_id}", vo)
-          config[:mapping].each do |model_attr, vo_attr|
-            instance_variable_set("@#{model_attr}", vo.send(vo_attr))
-          end
+        vo = if vo_class.respond_to?(:from_dynamo_map)
+               vo_class.from_dynamo_map(item[dynamo_key])
+             else
+               kwargs = {}
+               config[:mapping].each_value do |vo_attr|
+                 key = self.class.to_dynamo_key(vo_attr.to_s)
+                 kwargs[vo_attr] = item[dynamo_key][key] || item[dynamo_key][vo_attr.to_s]
+               end
+               vo_class.new(**kwargs)
+             end
+
+        instance_variable_set("@_composed_#{part_id}", vo)
+        config[:mapping].each do |model_attr, vo_attr|
+          instance_variable_set("@#{model_attr}", vo.send(vo_attr))
         end
       end
     end
@@ -46,7 +49,7 @@ module ActiveItem
           item[dynamo_key] = vo.to_dynamo_map
         else
           map = {}
-          config[:mapping].each do |_model_attr, vo_attr|
+          config[:mapping].each_value do |vo_attr|
             key = self.class.to_dynamo_key(vo_attr.to_s)
             map[key] = vo.send(vo_attr)
           end
@@ -86,6 +89,7 @@ module ActiveItem
 
       changes.each do |field, (_old_val, new_val)|
         next if composed_flat_keys.include?(field)
+
         dynamo_key = self.class.to_dynamo_key(field)
         if new_val.nil?
           remove_parts << "#field#{idx}"
@@ -98,7 +102,7 @@ module ActiveItem
         idx += 1
       end
 
-      changed_compositions.each do |part_id, _config|
+      changed_compositions.each_key do |part_id|
         remove_instance_variable("@_composed_#{part_id}") if instance_variable_defined?("@_composed_#{part_id}")
         vo = send(part_id)
         dynamo_key = self.class.to_dynamo_key(part_id.to_s)
@@ -132,9 +136,10 @@ module ActiveItem
       dynamodb.update_item(params)
     end
 
+    # Class-level DSL for declaring composed_of value objects on a model.
     module ClassMethods
       def compositions
-        @_compositions ||= {}
+        @compositions ||= {}
       end
 
       def composed_of(part_id, options = {})

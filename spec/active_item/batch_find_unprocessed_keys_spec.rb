@@ -36,7 +36,7 @@ RSpec.describe 'ActiveItem batch_find unprocessed keys' do
 
     allow_any_instance_of(Object).to receive(:sleep)
 
-    results = model_class.batch_find(['w1', 'w2'])
+    results = model_class.batch_find(%w[w1 w2])
     expect(results.length).to eq(2)
     expect(call_count).to eq(2)
   end

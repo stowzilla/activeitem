@@ -1,13 +1,15 @@
-# encoding: utf-8
+# frozen_string_literal: true
 
 require_relative 'relation'
 
 module ActiveItem
+  # Class-level query interface providing find, where, batch operations,
+  # counting, existence checks, and automatic GSI index detection.
   module QueryHelpers
-
     def find(id)
       record = get({ primary_key.to_s => id })
       raise ActiveItem::RecordNotFound, "Couldn't find #{name} with '#{primary_key}'=#{id}" unless record
+
       instantiate(record)
     end
 
@@ -40,22 +42,21 @@ module ActiveItem
 
           # Check for unprocessed keys and retry with exponential backoff
           unprocessed = response.unprocessed_keys
-          if unprocessed&.any?
-            retries += 1
-            break if retries > max_retries
+          break unless unprocessed&.any?
 
-            sleep(0.05 * (2**retries)) # Exponential backoff: 100ms, 200ms, 400ms...
-            request = unprocessed
-          else
-            break
-          end
+          retries += 1
+          break if retries > max_retries
+
+          sleep(0.05 * (2**retries)) # Exponential backoff: 100ms, 200ms, 400ms...
+          request = unprocessed
+
         end
       end
 
       results
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
-                                                operation: 'BatchGetItem', original_error: e)
+                                              operation: 'BatchGetItem', original_error: e)
     end
 
     # Batch write multiple records using DynamoDB's BatchWriteItem
@@ -100,15 +101,14 @@ module ActiveItem
           response = dynamodb.batch_write_item(request_items: request)
 
           unprocessed = response.unprocessed_items
-          if unprocessed&.any?
-            retries += 1
-            break if retries > max_retries
+          break unless unprocessed&.any?
 
-            sleep(0.05 * (2**retries))
-            request = unprocessed
-          else
-            break
-          end
+          retries += 1
+          break if retries > max_retries
+
+          sleep(0.05 * (2**retries))
+          request = unprocessed
+
         end
       end
 
@@ -116,7 +116,7 @@ module ActiveItem
       records
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: name, table: table_name,
-                                                operation: 'BatchWriteItem', original_error: e)
+                                              operation: 'BatchWriteItem', original_error: e)
     end
 
     def find_by(**conditions)
@@ -228,10 +228,6 @@ module ActiveItem
       all.first
     end
 
-    def last
-      all.last
-    end
-
     # Count records with optional conditions or block
     #
     # @example Count all records
@@ -243,10 +239,10 @@ module ActiveItem
     # @example Count with block (Rails-like, loads all records)
     #   Customer.count { |c| c.email.include?('@gmail.com') }  # => 15
     #
-    def count(**conditions, &block)
+    def count(**conditions, &)
       if block_given?
         # Block provided - load all records and count with Ruby
-        all.count(&block)
+        all.count(&)
       elsif conditions.empty?
         # No conditions, no block - use efficient DynamoDB COUNT
         response = dynamodb.scan(
@@ -278,22 +274,16 @@ module ActiveItem
     # @return [Boolean] true if a record exists matching the conditions
     def exists?(id_or_conditions = nil, **conditions)
       # Handle single ID parameter: Customer.exists?('cust-123')
-      if id_or_conditions.is_a?(String) && conditions.empty?
-        return !!get({ primary_key.to_s => id_or_conditions })
-      end
+      return !!get({ primary_key.to_s => id_or_conditions }) if id_or_conditions.is_a?(String) && conditions.empty?
 
       # Merge positional hash with keyword arguments if both provided
-      if id_or_conditions.is_a?(Hash)
-        conditions = id_or_conditions.merge(conditions)
-      end
+      conditions = id_or_conditions.merge(conditions) if id_or_conditions.is_a?(Hash)
 
       # If checking by primary key only, use the efficient get operation
-      if conditions.keys.size == 1 && conditions.key?(primary_key.to_sym)
-        return !!get({ primary_key.to_s => conditions[primary_key.to_sym] })
-      end
+      return !!get({ primary_key.to_s => conditions[primary_key.to_sym] }) if conditions.keys.size == 1 && conditions.key?(primary_key.to_sym)
 
       # For other conditions, use where with limit 1 and count
-      where(**conditions).limit(1).count > 0
+      where(**conditions).limit(1).any?
     end
 
     def delete_all
@@ -340,16 +330,10 @@ module ActiveItem
 
       # First, try to find an index with the converted partition key
       indexes.each do |index_name, config|
-        if config[:partition_key].to_s == dynamo_partition_key
-          return index_name
-        end
-      end
+        return index_name if config[:partition_key].to_s == dynamo_partition_key
 
-      # Also try the original Ruby key (for legacy indexes defined with snake_case)
-      indexes.each do |index_name, config|
-        if config[:partition_key].to_s == ruby_partition_key
-          return index_name
-        end
+        # Also try the original Ruby key (for legacy indexes defined with snake_case)
+        return index_name if config[:partition_key].to_s == ruby_partition_key
       end
 
       # If not found, check if this is an association-based attribute
@@ -360,9 +344,7 @@ module ActiveItem
         dynamo_resolved_key = to_dynamo_key(resolved_key)
         indexes.each do |index_name, config|
           pk = config[:partition_key].to_s
-          if pk == dynamo_resolved_key || pk == resolved_key
-            return index_name
-          end
+          return index_name if pk == dynamo_resolved_key || pk == resolved_key
         end
       end
 
@@ -388,7 +370,7 @@ module ActiveItem
       foreign_key = association_config[:foreign_key]
 
       # If the foreign key is different from the attribute name, return it
-      foreign_key.to_s != attr_name ? foreign_key.to_s : nil
+      foreign_key.to_s == attr_name ? nil : foreign_key.to_s
     end
 
     # Build a condition expression for a single attribute
@@ -416,15 +398,11 @@ module ActiveItem
       dynamo_attr = to_dynamo_key(attr_str)
 
       # Handle nil - use attribute_not_exists (DynamoDB doesn't support = NULL)
-      if val.nil?
-        return ["attribute_not_exists(#attr#{idx})", { "#attr#{idx}" => dynamo_attr }, {}]
-      end
+      return ["attribute_not_exists(#attr#{idx})", { "#attr#{idx}" => dynamo_attr }, {}] if val.nil?
 
       # Handle case-insensitive search with ilike option
       # Uses DynamoDB's `contains` function with downcased value
-      if ilike && val.is_a?(String)
-        return build_ilike_condition(dynamo_attr, val, idx)
-      end
+      return build_ilike_condition(dynamo_attr, val, idx) if ilike && val.is_a?(String)
 
       # Handle ActiveItem model objects - extract primary key value
       # This allows queries like: Container.where(parent_container: some_container)
@@ -437,24 +415,16 @@ module ActiveItem
       end
 
       # Handle nested hash syntax: { address: { zip_code: '12345' } }
-      if val.is_a?(Hash)
-        return build_nested_hash_conditions(dynamo_attr, val, idx)
-      end
+      return build_nested_hash_conditions(dynamo_attr, val, idx) if val.is_a?(Hash)
 
       # Handle dot notation: 'address.zip_code'
-      if attr_str.include?('.')
-        return build_dot_notation_condition(attr_str, val, idx)
-      end
+      return build_dot_notation_condition(attr_str, val, idx) if attr_str.include?('.')
 
       # Handle Range values (BETWEEN, >=, <=)
-      if val.is_a?(Range)
-        return build_range_condition(dynamo_attr, val, idx)
-      end
+      return build_range_condition(dynamo_attr, val, idx) if val.is_a?(Range)
 
       # Handle array values (IN clause)
-      if val.is_a?(Array)
-        return build_in_condition(dynamo_attr, val, idx)
-      end
+      return build_in_condition(dynamo_attr, val, idx) if val.is_a?(Array)
 
       # Simple equality condition (use placeholder for reserved words)
       build_simple_condition(dynamo_attr, val, idx)
@@ -468,7 +438,7 @@ module ActiveItem
     # @param val [String] Search value (will be downcased)
     # @param idx [Integer] Index for unique placeholder names
     # @return [Array<String, Hash, Hash>] [expression, attribute_names, attribute_values]
-    def build_ilike_condition(attr, val, idx)
+    def build_ilike_condition(attr, _val, idx)
       # For case-insensitive search, we can't rely on DynamoDB's case-sensitive contains()
       # Instead, we'll return a condition that matches more broadly and filter in Ruby
       # We use attribute_exists to ensure the field exists, then filter everything in Ruby
@@ -494,15 +464,12 @@ module ActiveItem
         if nested_val.is_a?(Hash)
           # Recursively handle deeper nesting
           expr, names, values = build_nested_hash_conditions(full_path, nested_val, idx)
-          expressions << expr
-          all_names.merge!(names)
-          all_values.merge!(values)
         else
           expr, names, values = build_dot_notation_condition(full_path, nested_val, idx)
-          expressions << expr
-          all_names.merge!(names)
-          all_values.merge!(values)
         end
+        expressions << expr
+        all_names.merge!(names)
+        all_values.merge!(values)
       end
 
       [expressions.join(' AND '), all_names, all_values]
@@ -632,6 +599,5 @@ module ActiveItem
         }
       end
     end
-
   end
 end

@@ -66,10 +66,10 @@ RSpec.describe ActiveItem::Associations do
     end
 
     it 'returns a Relation' do
-      stub_const('Child', Class.new(ActiveItem::Base) {
+      stub_const('Child', Class.new(ActiveItem::Base) do
         self.table_name = 'test-dev-children'
-        def self.name; 'Child'; end
-      }.tap { |k| k.dynamodb = dynamo_client })
+        def self.name = 'Child'
+      end.tap { |k| k.dynamodb = dynamo_client })
 
       parent = parent_class.new(name: 'Test')
       parent.save
