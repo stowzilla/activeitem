@@ -426,9 +426,6 @@ module ActiveItem
     def assign_attributes(attributes)
       attributes.each do |key, value|
         setter = "#{key}="
-        unless self.class.attribute_names.include?(key.to_s) || key.to_s == self.class.primary_key
-          next
-        end
         if respond_to?(setter)
           old_value = send(key)
           @pending_changes[key.to_s] = [old_value, value] if old_value != value

@@ -5,22 +5,23 @@ require 'base64'
 require 'json'
 
 RSpec.describe 'Security fixes' do
+  let(:dynamo_client) { @dynamo_client }
+
   before(:each) do
     ActiveItem.configure do |config|
       config.table_prefix = 'test'
-      config.environment = 'test'
+      config.environment = 'dev'
     end
   end
 
   describe 'Cursor deserialization validation' do
     let(:model_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-test-items'
-        self.dynamodb = FakeDynamoClient.new
+        self.table_name = 'test-dev-items'
         self.primary_key = :id
         attr_accessor :status
         indexes('StatusIndex' => { partition_key: 'status' })
-      end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     def encode_cursor(hash)
@@ -28,14 +29,14 @@ RSpec.describe 'Security fixes' do
     end
 
     it 'accepts valid cursor with string values' do
-      cursor = encode_cursor({ 'id' => 'abc-123', 'status' => 'active' })
+      cursor = encode_cursor({ 'id' => 'abc-123', 'status' => 'active', 'createdAt' => '2024-01-01' })
       relation = model_class.where(status: 'active')
       result = relation.page(cursor, per_page: 10)
       expect(result).to be_a(ActiveItem::Pagination::PaginatedResult)
     end
 
     it 'accepts valid cursor with numeric values' do
-      cursor = encode_cursor({ 'id' => 'abc-123', 'sortKey' => 42 })
+      cursor = encode_cursor({ 'id' => 'abc-123', 'status' => 'active', 'createdAt' => '1704067200' })
       relation = model_class.where(status: 'active')
       result = relation.page(cursor, per_page: 10)
       expect(result).to be_a(ActiveItem::Pagination::PaginatedResult)
@@ -46,7 +47,6 @@ RSpec.describe 'Security fixes' do
       relation = model_class.where(status: 'active')
       result = relation.page(cursor, per_page: 10)
       expect(result).to be_a(ActiveItem::Pagination::PaginatedResult)
-      # Should treat as nil cursor (first page) rather than passing injection through
     end
 
     it 'rejects cursor with array values' do
@@ -112,11 +112,10 @@ RSpec.describe 'Security fixes' do
   describe 'assign_attributes filtering' do
     let(:model_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-test-users'
-        self.dynamodb = FakeDynamoClient.new
+        self.table_name = 'test-dev-users'
         self.primary_key = :id
         attr_accessor :name, :email
-      end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
     it 'assigns known attributes' do
@@ -128,7 +127,6 @@ RSpec.describe 'Security fixes' do
 
     it 'ignores unknown attributes' do
       record = model_class.new
-      # This should not call arbitrary methods like `system` or `exit`
       record.assign_attributes(name: 'Alice', unknown_method: 'dangerous')
       expect(record.name).to eq('Alice')
     end

@@ -4,7 +4,7 @@ require_relative 'spec_helper'
 
 RSpec.describe ActiveItem do
   it 'has a version number' do
-    expect(ActiveItem::VERSION).to eq('0.0.1')
+    expect(ActiveItem::VERSION).to eq('0.0.2')
   end
 
   describe '.configure' do
