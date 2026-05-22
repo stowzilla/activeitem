@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem batch_write' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-widgets'
+      self.table_name = "#{TABLE_PREFIX}-widgets"
       attr_accessor :name
 
       def self.name
@@ -21,7 +21,7 @@ RSpec.describe 'ActiveItem batch_write' do
     model_class.batch_write(records)
 
     records.each do |r|
-      resp = dynamo_client.get_item(table_name: 'test-dev-widgets', key: { 'id' => r.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-widgets", key: { 'id' => r.id })
       expect(resp.item).not_to be_nil
     end
   end
@@ -52,7 +52,7 @@ RSpec.describe 'ActiveItem batch_write' do
     model_class.batch_write(records)
 
     # Verify all 30 were written
-    scan = dynamo_client.scan(table_name: 'test-dev-widgets')
+    scan = dynamo_client.scan(table_name: "#{TABLE_PREFIX}-widgets")
     expect(scan.items.length).to eq(30)
   end
 
@@ -68,7 +68,7 @@ RSpec.describe 'ActiveItem batch_write' do
       end
     end
     klass.dynamodb = dynamo_client
-    klass.table_name = 'test-dev-widgets'
+    klass.table_name = "#{TABLE_PREFIX}-widgets"
 
     allow_any_instance_of(klass).to receive(:track_callback) { callback_ran = true }
 

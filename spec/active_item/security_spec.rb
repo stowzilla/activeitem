@@ -9,7 +9,7 @@ RSpec.describe 'Security fixes' do
 
   before(:each) do
     ActiveItem.configure do |config|
-      config.table_prefix = 'test'
+      config.table_prefix = "test#{TEST_WORKER}"
       config.environment = 'dev'
     end
   end
@@ -17,7 +17,7 @@ RSpec.describe 'Security fixes' do
   describe 'Cursor deserialization validation' do
     let(:model_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-items'
+        self.table_name = "#{TABLE_PREFIX}-items"
         self.primary_key = :id
         attr_accessor :status
         indexes('StatusIndex' => { partition_key: 'status' })
@@ -112,7 +112,7 @@ RSpec.describe 'Security fixes' do
   describe 'assign_attributes filtering' do
     let(:model_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-users'
+        self.table_name = "#{TABLE_PREFIX}-users"
         self.primary_key = :id
         attr_accessor :name, :email
       end.tap { |klass| klass.dynamodb = dynamo_client }

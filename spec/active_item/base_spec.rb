@@ -7,14 +7,14 @@ RSpec.describe ActiveItem::Base do
 
   before do
     ActiveItem.configure do |config|
-      config.table_prefix = 'test'
+      config.table_prefix = "test#{TEST_WORKER}"
       config.environment = 'dev'
     end
   end
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-users'
+      self.table_name = "#{TABLE_PREFIX}-users"
 
       attr_accessor :email, :name, :status
 
@@ -26,7 +26,7 @@ RSpec.describe ActiveItem::Base do
 
   describe '.table_name' do
     it 'uses explicit table name when set' do
-      expect(model_class.table_name).to eq('test-dev-users')
+      expect(model_class.table_name).to eq("#{TABLE_PREFIX}-users")
     end
 
     it 'generates table name from configuration' do
@@ -35,7 +35,7 @@ RSpec.describe ActiveItem::Base do
           'BlogPost'
         end
       end
-      expect(klass.table_name).to eq('test-dev-blog-posts')
+      expect(klass.table_name).to eq("#{TABLE_PREFIX}-blog-posts")
     end
   end
 
@@ -77,13 +77,13 @@ RSpec.describe ActiveItem::Base do
       record = model_class.new(email: 'test@example.com', name: 'Alice')
       record.save
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-users", key: { 'id' => record.id })
       expect(resp.item['email']).to eq('test@example.com')
       expect(resp.item['name']).to eq('Alice')
     end
 
     it 'returns false when id already exists' do
-      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'existing-id', 'email' => 'x@y.com' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-users", item: { 'id' => 'existing-id', 'email' => 'x@y.com' })
 
       record = model_class.new(email: 'test@example.com')
       record.id = 'existing-id'
@@ -100,7 +100,7 @@ RSpec.describe ActiveItem::Base do
       record.email = 'new@example.com'
       record.save
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-users", key: { 'id' => record.id })
       expect(resp.item['email']).to eq('new@example.com')
     end
 
@@ -110,7 +110,7 @@ RSpec.describe ActiveItem::Base do
 
       # Re-save without changes — item should still be there unchanged
       record.save
-      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-users", key: { 'id' => record.id })
       expect(resp.item['email']).to eq('test@example.com')
     end
   end
@@ -123,14 +123,14 @@ RSpec.describe ActiveItem::Base do
 
       record.destroy
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-users', key: { 'id' => id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-users", key: { 'id' => id })
       expect(resp.item).to be_nil
     end
   end
 
   describe '.find' do
     it 'returns instantiated record when found' do
-      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'user-1', 'email' => 'found@example.com', 'name' => 'Found' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-users", item: { 'id' => 'user-1', 'email' => 'found@example.com', 'name' => 'Found' })
 
       record = model_class.find('user-1')
       expect(record.id).to eq('user-1')
@@ -145,8 +145,8 @@ RSpec.describe ActiveItem::Base do
 
   describe '.batch_find' do
     it 'returns multiple records' do
-      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u1', 'email' => 'a@b.com' })
-      dynamo_client.put_item(table_name: 'test-dev-users', item: { 'id' => 'u2', 'email' => 'c@d.com' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-users", item: { 'id' => 'u1', 'email' => 'a@b.com' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-users", item: { 'id' => 'u2', 'email' => 'c@d.com' })
 
       results = model_class.batch_find(['u1', 'u2'])
       expect(results.length).to eq(2)
@@ -185,7 +185,7 @@ RSpec.describe ActiveItem::Base do
         end
       end
       klass.dynamodb = dynamo_client
-      klass.table_name = 'test-dev-users'
+      klass.table_name = "#{TABLE_PREFIX}-users"
 
       record = klass.new(email: 'test@example.com')
       record.save
@@ -196,7 +196,7 @@ RSpec.describe ActiveItem::Base do
   describe 'custom primary key' do
     let(:custom_pk_class) do
       Class.new(ActiveItem::Base) do
-        self.table_name = 'test-dev-widgets-custom-pk'
+        self.table_name = "#{TABLE_PREFIX}-widgets-custom-pk"
         self.primary_key = :widget_id
 
         attr_accessor :name
@@ -211,7 +211,7 @@ RSpec.describe ActiveItem::Base do
       record = custom_pk_class.new(name: 'Sprocket')
       record.save
 
-      resp = dynamo_client.get_item(table_name: 'test-dev-widgets-custom-pk', key: { 'widget_id' => record.id })
+      resp = dynamo_client.get_item(table_name: "#{TABLE_PREFIX}-widgets-custom-pk", key: { 'widget_id' => record.id })
       expect(resp.item).not_to be_nil
       expect(resp.item['widget_id']).to eq(record.widget_id)
     end

@@ -7,7 +7,7 @@ RSpec.describe 'ActiveItem Relation#load' do
 
   let(:model_class) do
     Class.new(ActiveItem::Base) do
-      self.table_name = 'test-dev-items'
+      self.table_name = "#{TABLE_PREFIX}-items"
       attr_accessor :name, :status
 
       indexes('StatusIndex' => { partition_key: 'status' })
@@ -19,8 +19,8 @@ RSpec.describe 'ActiveItem Relation#load' do
   end
 
   it 'returns an array of records' do
-    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
-    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'active' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items", item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items", item: { 'id' => 'i2', 'name' => 'Beta', 'status' => 'active' })
 
     results = model_class.all.load
     expect(results).to be_an(Array)
@@ -33,7 +33,7 @@ RSpec.describe 'ActiveItem Relation#load' do
   end
 
   it 'returns fully hydrated records' do
-    dynamo_client.put_item(table_name: 'test-dev-items', item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
+    dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items", item: { 'id' => 'i1', 'name' => 'Alpha', 'status' => 'active' })
 
     results = model_class.all.load
     expect(results.first.name).to eq('Alpha')
