@@ -68,6 +68,8 @@ RSpec.configure do |config|
       c.environment = 'dev'
     end
 
+    DynamoDBLocalHelper.verify_connectivity!
+
     TABLES.each do |table_name, opts|
       DynamoDBLocalHelper.create_table(table_name, key_schema: opts[:key_schema], gsis: opts[:gsis])
     end
