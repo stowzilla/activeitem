@@ -37,6 +37,12 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: true
+      - name: Configure gem signing key
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GEM_SIGNING_KEY }}" > ~/.ssh/gem-private_key.pem
+          chmod 600 ~/.ssh/gem-private_key.pem
       - name: Build gem
         if: steps.check.outputs.exists == 'false'
         run: gem build activeitem.gemspec

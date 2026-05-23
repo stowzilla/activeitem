@@ -5,6 +5,13 @@ require 'active_model'
 module ActiveItem
   # ActiveModel validator that checks attribute uniqueness by querying
   # DynamoDB, with optional scope and custom condition support.
+  #
+  # IMPORTANT LIMITATIONS:
+  # - TOCTOU race condition: DynamoDB is eventually consistent, so a check-then-write
+  #   cannot guarantee uniqueness under concurrent writes. For strong uniqueness, use
+  #   a DynamoDB conditional put (attribute_not_exists) at the persistence layer instead.
+  # - DoS vector: without an index, uniqueness checks fall back to table scans. Always
+  #   ensure validated attributes have a GSI to avoid full-table scans on write paths.
   class UniquenessValidator < ActiveModel::EachValidator
     def validate_each(record, attribute, value)
       return if value.nil? || value.to_s.empty?

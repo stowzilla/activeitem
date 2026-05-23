@@ -1346,6 +1346,10 @@ module ActiveItem
     # Each query is a lightweight indexed count — no data transfer, just a number.
     # Uses thread pool for parallel execution when multiple parent IDs exist.
     #
+    # Thread safety: Aws::DynamoDB::Client is thread-safe — it uses internal
+    # connection pooling (Net::HTTP persistent connections per thread). The Mutex
+    # here protects only the shared `counts` hash, not the client itself.
+    #
     # @param assoc_class [Class] The associated model class
     # @param index_name [String] GSI index name
     # @param dynamo_fk [String] The DynamoDB attribute name for the foreign key
