@@ -1,0 +1,25 @@
+name: Auto Tag
+
+on:
+  push:
+    branches: [master]
+    paths: ['lib/active_item/version.rb']
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract version and create tag
+        run: |
+          VERSION=$(ruby -e "require './lib/active_item/version'; puts ActiveItem::VERSION")
+          TAG="v${VERSION}"
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "Tag ${TAG} already exists, skipping"
+          else
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          fi
