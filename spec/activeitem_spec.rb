@@ -11,7 +11,7 @@ RSpec.describe ActiveItem do
   end
 
   it 'has a version number' do
-    expect(ActiveItem::VERSION).to eq('0.0.3')
+    expect(ActiveItem::VERSION).to eq('0.0.4')
   end
 
   describe '.configure' do
