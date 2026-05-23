@@ -20,25 +20,22 @@ module ActiveItem
       self.class._associations.each do |name, config|
         next unless config[:type] == :has_many && config[:dependent]
 
-        associated_records = send(name)
-        has_records = associated_records.respond_to?(:any?) ? associated_records.any? : false
-
-        next unless has_records
-
         case config[:dependent]
         when :restrict_with_exception
-          raise DeleteRestrictionError, name
+          raise DeleteRestrictionError, name if send(name).limit(1).any?
         when :restrict_with_error
-          error_message = config[:message] || "Cannot delete #{self.class.name} because dependent #{name} exist"
-          errors.add(:base, error_message)
-          throw(:abort)
+          if send(name).limit(1).any?
+            error_message = config[:message] || "Cannot delete #{self.class.name} because dependent #{name} exist"
+            errors.add(:base, error_message)
+            throw(:abort)
+          end
         when :destroy
-          associated_records.each(&:destroy)
+          send(name).each(&:destroy)
         when :delete_all
-          associated_records.each(&:delete)
+          send(name).each(&:delete)
         when :nullify
           foreign_key = config[:foreign_key]
-          associated_records.each { |record| record.update(foreign_key => nil) }
+          send(name).each { |record| record.update(foreign_key => nil) }
         end
       end
     end

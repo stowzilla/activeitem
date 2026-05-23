@@ -765,6 +765,7 @@ module ActiveItem
                    build_count_scan_params(normalized_conditions)
                  end
         params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
+        params[:limit] = limit_value if limit_value
 
         response = if effective_index && normalized_conditions.any?
                      resolved_model.dynamodb.query(params)
@@ -775,9 +776,10 @@ module ActiveItem
         total += response.count
         exclusive_start_key = response.last_evaluated_key
         break unless exclusive_start_key
+        break if limit_value && total >= limit_value
       end
 
-      total
+      limit_value ? [total, limit_value].min : total
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                               operation: 'Count', original_error: e)

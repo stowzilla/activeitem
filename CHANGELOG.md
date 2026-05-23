@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.3
+
+### Changed
+
+- Replace custom `validates_length_of`, `validates_numericality_of`, `validates_format_of` with ActiveModel built-ins
+- Replace hand-rolled dirty tracking (`@pending_changes`/`@previously_changed`) with `ActiveModel::Dirty`
+- Replace manual `ActiveSupport::Callbacks` DSL with `ActiveModel::Callbacks` + `define_model_callbacks`
+
+### Improved
+
+- Add `limit` to `UniquenessValidator` queries (limit 2 when excluding self, `.first` for new records)
+- `execute_count_query` now respects `limit_value` and short-circuits pagination
+- `check_dependent_associations` uses `limit(1).any?` for restrict checks
+
 ## 0.0.2
 
 ### Security

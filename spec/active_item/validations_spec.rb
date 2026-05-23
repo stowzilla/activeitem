@@ -11,10 +11,9 @@ RSpec.describe 'ActiveItem Validations' do
 
       attr_accessor :name, :email, :age, :code
 
-      validates :name, presence: true
-      validates_length_of :name, minimum: 2, maximum: 50
-      validates_numericality_of :age, greater_than: 0
-      validates_format_of :email, with: /\A[^@]+@[^@]+\z/, message: 'is invalid'
+      validates :name, presence: true, length: { minimum: 2, maximum: 50 }
+      validates :age, numericality: { greater_than: 0 }
+      validates :email, format: { with: /\A[^@]+@[^@]+\z/, message: 'is invalid' }
 
       def self.name
         'Item'
