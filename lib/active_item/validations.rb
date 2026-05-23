@@ -16,11 +16,24 @@ module ActiveItem
         end
       end
 
-      existing = record.class.where(**conditions)
-      existing = existing.reject { |r| r.id == record.id } if record.id
-      existing = existing.select { |r| options[:conditions].call(r) } if options[:conditions]
+      relation = record.class.where(**conditions)
 
-      record.errors.add(attribute, options[:message] || 'has already been taken') if existing.any?
+      if options[:conditions]
+        # Custom conditions require loading records for Ruby-side filtering
+        existing = relation.to_a
+        existing = existing.reject { |r| r.id == record.id } if record.id
+        existing = existing.select { |r| options[:conditions].call(r) }
+        taken = existing.any?
+      elsif record.id
+        # Need to exclude current record — fetch up to 2 (current + one other)
+        existing = relation.limit(2).to_a
+        taken = existing.any? { |r| r.id != record.id }
+      else
+        # New record — just check if any match exists
+        taken = !relation.first.nil?
+      end
+
+      record.errors.add(attribute, options[:message] || 'has already been taken') if taken
     end
   end
 
