@@ -442,7 +442,7 @@ module ActiveItem
     end
 
     def attribute_was(attr_name)
-      attribute_in_database(attr_name.to_s)
+      changed_attributes[attr_name.to_s]
     end
 
     def valid?(context = nil)

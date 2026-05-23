@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.4
+
+### Fixed
+
+- Fix `attribute_was` calling `attribute_in_database` (ActiveRecord-only) — now uses `changed_attributes` from ActiveModel::Dirty
+
 ## 0.0.3
 
 ### Changed

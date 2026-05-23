@@ -166,6 +166,19 @@ RSpec.describe ActiveItem::Base do
       expect(record.changes['email']).to eq(['old@example.com', 'new@example.com'])
     end
 
+    it 'returns previous value via attribute_was' do
+      record = model_class.new(email: 'original@example.com')
+      record.save
+      record.email = 'updated@example.com'
+      expect(record.attribute_was(:email)).to eq('original@example.com')
+    end
+
+    it 'returns nil from attribute_was when attribute has not changed' do
+      record = model_class.new(email: 'test@example.com')
+      record.save
+      expect(record.attribute_was(:email)).to be_nil
+    end
+
     it 'clears changes after save' do
       record = model_class.new(email: 'test@example.com')
       record.save
