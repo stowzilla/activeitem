@@ -1,4 +1,4 @@
-name: Auto Tag
+name: Auto Tag and Release
 
 on:
   push:
@@ -9,17 +9,45 @@ permissions:
   contents: write
 
 jobs:
-  tag:
+  tag-and-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Extract version and create tag
+      - uses: actions/checkout@v6
+      - name: Extract version
+        id: version
         run: |
           VERSION=$(ruby -e "require './lib/active_item/version'; puts ActiveItem::VERSION")
-          TAG="v${VERSION}"
-          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-            echo "Tag ${TAG} already exists, skipping"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Check if tag exists
+        id: check
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ steps.version.outputs.tag }}$"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            git tag "${TAG}"
-            git push origin "${TAG}"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+      - uses: ruby/setup-ruby@v1
+        if: steps.check.outputs.exists == 'false'
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: Build gem
+        if: steps.check.outputs.exists == 'false'
+        run: gem build activeitem.gemspec
+      - name: Push to RubyGems
+        if: steps.check.outputs.exists == 'false'
+        run: gem push activeitem-*.gem
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
