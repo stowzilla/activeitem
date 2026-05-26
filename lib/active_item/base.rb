@@ -105,9 +105,7 @@ module ActiveItem
 
           define_method("#{attr_name}=") do |value|
             old_value = instance_variable_get("@#{attr_name}")
-            if old_value != value
-              send("#{attr_name}_will_change!") unless changed_attributes.key?(attr_name)
-            end
+            send("#{attr_name}_will_change!") if (old_value != value) && !changed_attributes.key?(attr_name)
             instance_variable_set("@#{attr_name}", value)
           end
         end
