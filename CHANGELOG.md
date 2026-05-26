@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.5
+
+### Fixed
+
+- Fix RuboCop offenses: merge nested conditional in `Base`, remove trailing newline in `version.rb`
+
+### Infrastructure
+
+- Fix CI workflow to trigger on `master` branch (was incorrectly set to `main`)
+- Add bundler-audit security scanning to CI pipeline
+- Add gem signing with certificate chain for consumer verification
+
 ## 0.0.4
 
 ### Fixed
