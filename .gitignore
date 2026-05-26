@@ -3,3 +3,4 @@
 /pkg/
 /tmp/
 *.gem
+gem-private_key.pem

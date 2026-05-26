@@ -8,6 +8,13 @@ ActiveRecord-like ORM for AWS DynamoDB.
 gem 'activeitem'
 ```
 
+To install with signature verification:
+
+```bash
+gem cert --add <(curl -Ls https://raw.githubusercontent.com/stowzilla/activeitem/master/certs/stowzilla.pem)
+gem install activeitem -P MediumSecurity
+```
+
 ## Configuration
 
 ```ruby

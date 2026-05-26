@@ -19,7 +19,10 @@ Gem::Specification.new do |spec|
   spec.metadata['changelog_uri'] = 'https://github.com/stowzilla/activeitem/blob/main/CHANGELOG.md'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
-  spec.files = Dir['lib/**/*', 'LICENSE.txt', 'README.md', 'CHANGELOG.md']
+  spec.cert_chain  = ['certs/stowzilla.pem']
+  spec.signing_key = File.expand_path('~/.ssh/gem-private_key.pem') if File.exist?(File.expand_path('~/.ssh/gem-private_key.pem'))
+
+  spec.files = Dir['lib/**/*', 'LICENSE.txt', 'README.md', 'CHANGELOG.md', 'certs/*']
   spec.require_paths = ['lib']
 
   spec.add_dependency 'activemodel', '>= 7.0'
