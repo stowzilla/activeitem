@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.6
+
+### Added
+
+- `Model.destroy_all` — class-level method that scans the table and calls `destroy` on each record (runs callbacks)
+- `Model.delete_all` — class-level method that scans the table and calls `delete` on each record (skips callbacks)
+
+### Fixed
+
+- `delete_all` now correctly skips callbacks (was previously delegating to `destroy_all`)
+
 ## 0.0.5
 
 ### Fixed

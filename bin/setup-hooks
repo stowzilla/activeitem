@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+HOOK_FILE=".git/hooks/pre-commit"
+
+cat > "$HOOK_FILE" << 'EOF'
+#!/usr/bin/env bash
+set -e
+
+echo "Running RuboCop..."
+bundle exec rubocop --force-exclusion
+EOF
+
+chmod +x "$HOOK_FILE"
+echo "✓ Pre-commit hook installed (runs rubocop before each commit)"

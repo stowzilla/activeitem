@@ -286,8 +286,12 @@ module ActiveItem
       where(**conditions).limit(1).any?
     end
 
-    def delete_all
+    def destroy_all
       all.destroy_all
+    end
+
+    def delete_all
+      all.delete_all
     end
 
     # Define GSI indexes for the model
