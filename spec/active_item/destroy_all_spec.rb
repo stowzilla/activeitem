@@ -35,9 +35,8 @@ RSpec.describe 'destroy_all and delete_all' do
     end
 
     it 'runs destroy callbacks on each record' do
-      records = model_class.all.to_a
+      model_class.all.to_a
       model_class.destroy_all
-      # Callbacks ran — verified by no errors (callback sets an attribute before destroy)
       expect(model_class.all.to_a).to be_empty
     end
   end
