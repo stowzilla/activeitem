@@ -128,6 +128,36 @@ RSpec.describe ActiveItem::Base do
     end
   end
 
+  describe '#destroy!' do
+    it 'removes item from DynamoDB and returns true' do
+      record = model_class.new(email: 'test@example.com')
+      record.save
+
+      expect(record.destroy!).to be true
+    end
+
+    it 'raises RecordNotDestroyed when callbacks halt destruction' do
+      halting_class = Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-users"
+        attr_accessor :email
+
+        before_destroy :halt_destroy
+
+        private
+
+        def halt_destroy
+          throw(:abort)
+        end
+      end
+      halting_class.dynamodb = dynamo_client
+
+      record = halting_class.new(email: 'halt@example.com')
+      record.save
+
+      expect { record.destroy! }.to raise_error(ActiveItem::RecordNotDestroyed)
+    end
+  end
+
   describe '.find' do
     it 'returns instantiated record when found' do
       dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-users", item: { 'id' => 'user-1', 'email' => 'found@example.com', 'name' => 'Found' })
