@@ -18,6 +18,16 @@ module ActiveItem
     end
   end
 
+  # Raised by destroy! when the record is not destroyed.
+  class RecordNotDestroyed < StandardError
+    attr_reader :record
+
+    def initialize(message = nil, record = nil)
+      @record = record
+      super(message || 'Failed to destroy the record')
+    end
+  end
+
   # Raised when a record cannot be deleted because dependent associations
   # with :restrict_with_exception still exist.
   class DeleteRestrictionError < StandardError

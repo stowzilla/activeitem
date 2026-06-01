@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.7
+
+### Added
+
+- `destroy!` — raises `ActiveItem::RecordNotDestroyed` when the record cannot be destroyed (e.g., callbacks halt the chain)
+
 ## 0.0.6
 
 ### Added

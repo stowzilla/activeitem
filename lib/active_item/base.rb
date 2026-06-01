@@ -420,6 +420,10 @@ module ActiveItem
       false
     end
 
+    def destroy!
+      destroy || raise(RecordNotDestroyed.new(nil, self))
+    end
+
     def delete
       perform_destroy
       true
