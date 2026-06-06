@@ -507,9 +507,19 @@ module ActiveItem
       return [[], nil] if conditions[:_empty]
 
       normalized_conditions = normalize_conditions(conditions)
-      exclusive_start_key = decode_cursor(cursor)
 
       effective_index = index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
+
+      # Array partition key fan-out uses a simple string cursor (sort_val|id), not DynamoDB LastEvaluatedKey
+      if effective_index && normalized_conditions.any? && normalized_conditions.values.first.is_a?(Array)
+        index_config = resolved_model.indexes[effective_index] || {}
+        ruby_partition_key = normalized_conditions.keys.first.to_s
+        dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+        return fanout_paginated_query(effective_index, normalized_conditions, index_config, dynamo_partition_key,
+                                      normalized_conditions.values.first, cursor, per_page)
+      end
+
+      exclusive_start_key = decode_cursor(cursor)
 
       if effective_index && normalized_conditions.any?
         paginated_query_with_index(effective_index, normalized_conditions, exclusive_start_key, per_page)
@@ -754,6 +764,9 @@ module ActiveItem
       normalized_conditions = normalize_conditions(conditions)
 
       effective_index = (index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions) if normalized_conditions.any?)
+
+      # Array partition key: fan-out count queries in parallel
+      return fanout_count_query(effective_index, normalized_conditions) if effective_index && normalized_conditions.any? && normalized_conditions.values.first.is_a?(Array)
 
       total = 0
       exclusive_start_key = nil
@@ -1034,7 +1047,7 @@ module ActiveItem
       index_config = resolved_model.indexes[idx_name] || {}
       dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
-      raise ArgumentError, 'Array values not supported for partition key queries. Use scan instead.' if partition_value.is_a?(Array)
+      return fanout_query(idx_name, normalized_conditions, index_config, dynamo_partition_key, partition_value) if partition_value.is_a?(Array)
 
       raise ArgumentError, 'Range values not supported for partition key queries. Use scan instead.' if partition_value.is_a?(Range)
 
@@ -1118,6 +1131,281 @@ module ActiveItem
       end
 
       all_items
+    end
+
+    # Fan-out parallel queries when partition key is an Array.
+    # Queries each partition key in parallel, merges and optionally sorts results.
+    def fanout_query(idx_name, _normalized_conditions, index_config, dynamo_partition_key, partition_values)
+      return [] if partition_values.empty?
+
+      sort_key = index_config[:sort_key]&.to_s
+      remaining_conditions = conditions.to_a[1..]
+      filter_parts, filter_names, filter_values = build_fanout_filters(sort_key, remaining_conditions)
+
+      all_items = []
+      mutex = Mutex.new
+      max_concurrency = 10
+
+      partition_values.each_slice(max_concurrency) do |batch|
+        threads = batch.map do |pk_val|
+          Thread.new do
+            params = {
+              table_name: resolved_model.table_name,
+              index_name: idx_name,
+              key_condition_expression: '#pk = :pk_val',
+              expression_attribute_names: { '#pk' => dynamo_partition_key }.merge(filter_names),
+              expression_attribute_values: { ':pk_val' => pk_val }.merge(filter_values)
+            }
+
+            apply_sort_key_to_params!(params, sort_key, remaining_conditions)
+            params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
+            params[:limit] = limit_value if limit_value
+            params[:scan_index_forward] = (order_direction != :desc) unless order_direction.nil?
+            apply_projection_expression!(params)
+
+            items = []
+            exclusive_start_key = nil
+            loop do
+              params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
+              response = resolved_model.dynamodb.query(params)
+              items.concat(response.items.map { |item| resolved_model.instantiate(item) })
+              exclusive_start_key = response.last_evaluated_key
+              break unless exclusive_start_key
+              break if limit_value && items.length >= limit_value
+            end
+            mutex.synchronize { all_items.concat(items) }
+          end
+        end
+        threads.each(&:join)
+      end
+
+      all_items = apply_ilike_filter(all_items)
+      all_items = sort_fanout_results(all_items, sort_key)
+      all_items = all_items.first(limit_value) if limit_value
+      all_items
+    end
+
+    # Fan-out paginated query across multiple partition keys.
+    # Uses a composite cursor that encodes sort_key|id position for cross-partition pagination.
+    def fanout_paginated_query(idx_name, _normalized_conditions, index_config, dynamo_partition_key, partition_values,
+                               cursor, per_page)
+      return [[], nil] if partition_values.empty?
+
+      sort_key = index_config[:sort_key]&.to_s
+      remaining_conditions = conditions.to_a[1..]
+      filter_parts, filter_names, filter_values = build_fanout_filters(sort_key, remaining_conditions)
+      cursor_sort_val, cursor_id = decode_fanout_cursor(cursor)
+
+      all_items = []
+      mutex = Mutex.new
+      max_concurrency = 10
+
+      partition_values.each_slice(max_concurrency) do |batch|
+        threads = batch.map do |pk_val|
+          Thread.new do
+            params = {
+              table_name: resolved_model.table_name,
+              index_name: idx_name,
+              key_condition_expression: '#pk = :pk_val',
+              expression_attribute_names: { '#pk' => dynamo_partition_key }.merge(filter_names),
+              expression_attribute_values: { ':pk_val' => pk_val }.merge(filter_values)
+            }
+
+            apply_sort_key_to_params!(params, sort_key, remaining_conditions)
+
+            # Apply cursor range condition to skip already-seen items
+            if cursor_sort_val && sort_key
+              sk_placeholder = '#fanout_sk'
+              val_placeholder = ':fanout_sk_val'
+              op = order_direction == :desc ? '<=' : '>='
+              params[:key_condition_expression] += " AND #{sk_placeholder} #{op} #{val_placeholder}"
+              params[:expression_attribute_names][sk_placeholder] = sort_key
+              params[:expression_attribute_values][val_placeholder] = cursor_sort_val
+            end
+
+            params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
+            params[:scan_index_forward] = (order_direction != :desc) unless order_direction.nil?
+            # Fetch enough to fill a page after merge
+            params[:limit] = per_page + 1
+
+            items = []
+            exclusive_start_key = nil
+            loop do
+              params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
+              response = resolved_model.dynamodb.query(params)
+              items.concat(response.items.map { |item| resolved_model.instantiate(item) })
+              exclusive_start_key = response.last_evaluated_key
+              break unless exclusive_start_key
+              break if items.length >= per_page + 1
+            end
+            mutex.synchronize { all_items.concat(items) }
+          end
+        end
+        threads.each(&:join)
+      end
+
+      all_items = apply_ilike_filter(all_items)
+      all_items = sort_fanout_results(all_items, sort_key)
+
+      # Skip items at or before the cursor position
+      if cursor_sort_val && cursor_id
+        all_items = all_items.drop_while do |item|
+          sk_val = if sort_key
+                     item.respond_to?(sort_key) ? item.send(sort_key) : item.send(underscore(sort_key))
+                   end
+          sk_val ||= item.respond_to?(:created_at) ? item.created_at : nil
+          cmp = compare_with_nil(sk_val, cursor_sort_val)
+          if order_direction == :desc
+            cmp.positive? || (cmp.zero? && item.id >= cursor_id)
+          else
+            cmp.negative? || (cmp.zero? && item.id <= cursor_id)
+          end
+        end
+      end
+
+      page_items = all_items.first(per_page)
+      next_cursor = (encode_fanout_cursor(page_items.last, sort_key) if all_items.length > per_page && page_items.last)
+
+      [page_items, next_cursor]
+    end
+
+    def build_fanout_filters(sort_key, remaining_conditions)
+      filter_parts = []
+      filter_names = {}
+      filter_values = {}
+
+      # Exclude sort key conditions — those go into key_condition_expression
+      non_sort_conditions = remaining_conditions.reject do |k, _|
+        sort_key && (resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key)
+      end
+
+      non_sort_conditions.each_with_index do |(attr, val), idx|
+        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+        filter_parts << expr
+        filter_names.merge!(names)
+        filter_values.merge!(values) if values.any?
+      end
+
+      not_conditions.each_with_index do |(attr, val), idx|
+        expr, names, values = build_not_condition_expression(attr, val, "not#{idx}")
+        filter_parts << expr
+        filter_names.merge!(names)
+        filter_values.merge!(values) if values.any?
+      end
+
+      [filter_parts, filter_names, filter_values]
+    end
+
+    def apply_sort_key_to_params!(params, sort_key, remaining_conditions)
+      return unless sort_key && remaining_conditions.any?
+
+      sort_condition = remaining_conditions.find do |k, _|
+        resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
+      end
+      return unless sort_condition
+
+      _, sort_value = sort_condition
+      if sort_value.is_a?(Range)
+        range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
+        params[:key_condition_expression] += " AND #{range_condition[:expression]}"
+        params[:expression_attribute_names].merge!(range_condition[:names])
+        params[:expression_attribute_values].merge!(range_condition[:values])
+      else
+        params[:key_condition_expression] += ' AND #sk = :sk_val'
+        params[:expression_attribute_names]['#sk'] = sort_key
+        params[:expression_attribute_values][':sk_val'] = sort_value
+      end
+    end
+
+    def sort_fanout_results(items, sort_key)
+      return items unless sort_key
+
+      sorted = items.sort_by do |item|
+        sk_val = item.respond_to?(sort_key) ? item.send(sort_key) : item.send(underscore(sort_key))
+        sk_val ||= ''
+        if order_direction == :desc
+          [sk_val, item.id].map { |v| v.is_a?(String) ? v : v.to_s }
+        else
+          [sk_val, item.id]
+        end
+      end
+
+      order_direction == :desc ? sorted.reverse : sorted
+    end
+
+    def decode_fanout_cursor(cursor)
+      return [nil, nil] if cursor.nil? || cursor.empty?
+
+      sort_val, id = cursor.split('|', 2)
+      [sort_val, id]
+    rescue StandardError
+      [nil, nil]
+    end
+
+    def encode_fanout_cursor(item, sort_key)
+      sk_val = if sort_key
+                 item.respond_to?(sort_key) ? item.send(sort_key) : item.send(underscore(sort_key))
+               end
+      sk_val ||= item.respond_to?(:created_at) ? item.created_at : nil
+      "#{sk_val}|#{item.id}"
+    end
+
+    def compare_with_nil(left, right)
+      return 0 if left.nil? && right.nil?
+      return -1 if left.nil?
+      return 1 if right.nil?
+
+      left <=> right
+    end
+
+    def underscore(str)
+      str.gsub(/([A-Z])/, '_\1').sub(/^_/, '').downcase
+    end
+
+    def fanout_count_query(idx_name, normalized_conditions)
+      partition_values = normalized_conditions.values.first
+      index_config = resolved_model.indexes[idx_name] || {}
+      ruby_partition_key = normalized_conditions.keys.first.to_s
+      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+      sort_key = index_config[:sort_key]&.to_s
+      remaining_conditions = conditions.to_a[1..]
+      filter_parts, filter_names, filter_values = build_fanout_filters(sort_key, remaining_conditions)
+
+      total = 0
+      mutex = Mutex.new
+      max_concurrency = 10
+
+      partition_values.each_slice(max_concurrency) do |batch|
+        threads = batch.map do |pk_val|
+          Thread.new do
+            params = {
+              table_name: resolved_model.table_name,
+              index_name: idx_name,
+              select: 'COUNT',
+              key_condition_expression: '#pk = :pk_val',
+              expression_attribute_names: { '#pk' => dynamo_partition_key }.merge(filter_names),
+              expression_attribute_values: { ':pk_val' => pk_val }.merge(filter_values)
+            }
+
+            apply_sort_key_to_params!(params, sort_key, remaining_conditions)
+            params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
+
+            count = 0
+            exclusive_start_key = nil
+            loop do
+              params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
+              response = resolved_model.dynamodb.query(params)
+              count += response.count
+              exclusive_start_key = response.last_evaluated_key
+              break unless exclusive_start_key
+            end
+            mutex.synchronize { total += count }
+          end
+        end
+        threads.each(&:join)
+      end
+
+      limit_value ? [total, limit_value].min : total
     end
 
     def scan_with_conditions_normalized(normalized_conditions)
