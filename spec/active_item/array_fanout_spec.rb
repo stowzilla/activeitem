@@ -65,6 +65,21 @@ RSpec.describe 'Array partition key fan-out' do
       results = event_class.where(customer_id: %w[c1 c2], index: 'CustomerIndex').not(event_type: 'pickup').to_a
       expect(results.map(&:id)).to match_array(%w[e2 e4])
     end
+
+    it 'works with a single-element array (same as scalar query)' do
+      results = event_class.where(customer_id: %w[c1], index: 'CustomerIndex').to_a
+      expect(results.map(&:id)).to match_array(%w[e1 e2])
+    end
+
+    it 'returns empty when partition keys have no data' do
+      results = event_class.where(customer_id: %w[nonexistent also_fake], index: 'CustomerIndex').to_a
+      expect(results).to eq([])
+    end
+
+    it 'ignores nonexistent partitions among valid ones' do
+      results = event_class.where(customer_id: %w[c1 nonexistent], index: 'CustomerIndex').to_a
+      expect(results.map(&:id)).to match_array(%w[e1 e2])
+    end
   end
 
   describe '.count with array partition key' do
@@ -76,6 +91,11 @@ RSpec.describe 'Array partition key fan-out' do
     it 'returns 0 for empty array' do
       count = event_class.where(customer_id: [], index: 'CustomerIndex').count
       expect(count).to eq(0)
+    end
+
+    it 'counts with .not filter applied' do
+      count = event_class.where(customer_id: %w[c1 c2], index: 'CustomerIndex').not(event_type: 'pickup').count
+      expect(count).to eq(2)
     end
   end
 
@@ -105,6 +125,28 @@ RSpec.describe 'Array partition key fan-out' do
 
       all_created_ats = (first.items + second.items).map(&:created_at)
       expect(all_created_ats).to eq(all_created_ats.sort.reverse)
+    end
+
+    it 'paginates correctly in ascending order' do
+      first = event_class.where(customer_id: %w[c1 c2 c3], index: 'CustomerIndex').order(:asc).page(nil, per_page: 3)
+      second = event_class.where(customer_id: %w[c1 c2 c3], index: 'CustomerIndex').order(:asc).page(first.next_cursor, per_page: 3)
+
+      all_created_ats = (first.items + second.items).map(&:created_at)
+      expect(all_created_ats).to eq(all_created_ats.sort)
+      overlap = first.items.map(&:id) & second.items.map(&:id)
+      expect(overlap).to be_empty
+    end
+
+    it 'paginates with .not filter' do
+      result = event_class.where(customer_id: %w[c1 c2], index: 'CustomerIndex').not(event_type: 'pickup').order(:desc).page(nil, per_page: 10)
+      expect(result.items.map(&:id)).to match_array(%w[e2 e4])
+      expect(result.has_more?).to be false
+    end
+
+    it 'returns all items on single page when per_page exceeds total' do
+      result = event_class.where(customer_id: %w[c1 c2 c3], index: 'CustomerIndex').order(:desc).page(nil, per_page: 100)
+      expect(result.items.length).to eq(5)
+      expect(result.has_more?).to be false
     end
   end
 end
