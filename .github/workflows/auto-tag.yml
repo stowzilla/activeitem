@@ -41,8 +41,13 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.GEM_SIGNING_KEY }}" > ~/.ssh/gem-private_key.pem
+          echo "${{ secrets.GEM_SIGNING_KEY }}" > ~/.ssh/gem-private_key_encrypted.pem
+          chmod 600 ~/.ssh/gem-private_key_encrypted.pem
+          openssl rsa -in ~/.ssh/gem-private_key_encrypted.pem -out ~/.ssh/gem-private_key.pem -passin env:GEM_SIGNING_KEY_PASSPHRASE
           chmod 600 ~/.ssh/gem-private_key.pem
+          rm ~/.ssh/gem-private_key_encrypted.pem
+        env:
+          GEM_SIGNING_KEY_PASSPHRASE: ${{ secrets.GEM_SIGNING_KEY_PASSPHRASE }}
       - name: Build gem
         if: steps.check.outputs.exists == 'false'
         run: gem build activeitem.gemspec
