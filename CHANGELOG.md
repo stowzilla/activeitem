@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.8
+
+### Added
+
+- **Array partition key fan-out** — `where(partition_key: [val1, val2, ...])` now queries each partition in parallel and merges results, instead of raising `ArgumentError`
+- Works with `.to_a`, `.page(cursor, per_page:)`, `.count`, `.order(:desc)`, `.not(...)`, and all other chainable methods
+- Pagination uses a `sort_val|id` cursor format for cross-partition consistency
+- Thread-pooled execution (max 10 concurrent queries) matching existing `preload_has_many_counts` pattern
+
 ## 0.0.7
 
 ### Added
