@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.9
+
+### Fixed
+
+- **Pagination cursor loss in `paginated_query_with_index`** — when the 2x overfetch returned all remaining items in a single DynamoDB response (no `LastEvaluatedKey`), the method returned `has_more: false` despite having silently trimmed items. Now builds a synthetic `ExclusiveStartKey` from the last returned item's attributes (table PK + GSI partition/sort keys) to ensure correct pagination.
+
 ## 0.0.8
 
 ### Added

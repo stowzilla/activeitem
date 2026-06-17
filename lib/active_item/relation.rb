@@ -661,10 +661,22 @@ module ActiveItem
 
       # Trim to requested page size and determine next cursor
       if collected_items.length > per_page
-        [collected_items.take(per_page), encode_cursor(last_evaluated_key || current_cursor)]
+        next_cursor = last_evaluated_key || build_synthetic_cursor(collected_items[per_page - 1], idx_name, index_config)
+        [collected_items.take(per_page), encode_cursor(next_cursor)]
       else
         [collected_items, encode_cursor(last_evaluated_key)]
       end
+    end
+
+    # Build a synthetic ExclusiveStartKey from an item when DynamoDB didn't paginate
+    # but we have more items than per_page (overfetch returned everything in one shot).
+    # For GSI queries, DynamoDB requires: table PK + index partition key + index sort key (if any).
+    def build_synthetic_cursor(item, _idx_name, index_config)
+      pk_dynamo = resolved_model.to_dynamo_key(resolved_model.primary_key.to_s)
+      cursor = { pk_dynamo => item.id }
+      cursor[index_config[:partition_key].to_s] = item.send(resolved_model.from_dynamo_key(index_config[:partition_key].to_s)) if index_config[:partition_key]
+      cursor[index_config[:sort_key].to_s] = item.send(resolved_model.from_dynamo_key(index_config[:sort_key].to_s)) if index_config[:sort_key]
+      cursor
     end
 
     # Execute paginated scan
