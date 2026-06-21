@@ -540,6 +540,8 @@ module ActiveItem
       attr_names = {}
 
       changes.each_with_index do |(field, (_old_val, new_val)), idx|
+        next if field == 'updated_at'
+
         dynamo_key = self.class.to_dynamo_key(field)
         if new_val.nil?
           remove_parts << "#field#{idx}"
@@ -551,7 +553,8 @@ module ActiveItem
         end
       end
 
-      update_parts << 'updatedAt = :updatedAt'
+      update_parts << '#updatedAt = :updatedAt'
+      attr_names['#updatedAt'] = 'updatedAt'
       attr_values[':updatedAt'] = Time.now.utc.iso8601
 
       update_expression = "SET #{update_parts.join(', ')}"
