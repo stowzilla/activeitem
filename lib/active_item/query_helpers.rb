@@ -90,7 +90,7 @@ module ActiveItem
       # DynamoDB BatchWriteItem limit is 25 items per request
       records.each_slice(25) do |chunk|
         write_requests = chunk.map do |record|
-          { put_request: { item: record.send(:build_dynamodb_item).merge('createdAt' => record.created_at, 'updatedAt' => record.updated_at) } }
+          { put_request: { item: record.send(:build_dynamodb_item).merge('createdAt' => record.created_at, 'updatedAt' => record.updated_at, '_recent_pk' => 'ALL') } }
         end
 
         request = { table_name => write_requests }
