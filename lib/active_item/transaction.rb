@@ -22,7 +22,8 @@ module ActiveItem
 
       item = record.send(:build_dynamodb_item).merge(
         'createdAt' => record.created_at,
-        'updatedAt' => record.updated_at
+        'updatedAt' => record.updated_at,
+        '_recent_pk' => 'ALL'
       )
 
       op = { put: { table_name: record.class.table_name, item: item } }

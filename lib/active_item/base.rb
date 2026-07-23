@@ -489,6 +489,7 @@ module ActiveItem
       item = build_dynamodb_item
       item['createdAt'] = @created_at
       item['updatedAt'] = Time.now.utc.iso8601
+      item['_recent_pk'] ||= 'ALL'
 
       dynamodb.put_item(
         table_name: table_name,
