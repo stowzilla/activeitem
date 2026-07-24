@@ -18,6 +18,19 @@ module ActiveItem
     end
   end
 
+  # Raised when batch_write fails to write all items after retries.
+  class BatchWriteError < StandardError
+    attr_reader :model_name, :table, :failed_count, :total_count
+
+    def initialize(model_name:, table:, failed_count:, total_count:)
+      @model_name = model_name
+      @table = table
+      @failed_count = failed_count
+      @total_count = total_count
+      super("#{model_name} batch_write failed: #{failed_count} of #{total_count} items could not be written to #{table} after retries (DynamoDB throughput exceeded).")
+    end
+  end
+
   # Raised by destroy! when the record is not destroyed.
   class RecordNotDestroyed < StandardError
     attr_reader :record

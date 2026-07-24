@@ -87,6 +87,8 @@ module ActiveItem
         record.instance_variable_set(:@updated_at, now)
       end
 
+      failed_count = 0
+
       # DynamoDB BatchWriteItem limit is 25 items per request
       records.each_slice(25) do |chunk|
         write_requests = chunk.map do |record|
@@ -94,7 +96,7 @@ module ActiveItem
         end
 
         request = { table_name => write_requests }
-        max_retries = 5
+        max_retries = 8
         retries = 0
 
         while request&.any?
@@ -104,12 +106,25 @@ module ActiveItem
           break unless unprocessed&.any?
 
           retries += 1
-          break if retries > max_retries
+          if retries > max_retries
+            # Count items that could not be written after all retries
+            unprocessed.each_value { |reqs| failed_count += reqs.size }
+            break
+          end
 
           sleep(0.05 * (2**retries) * (0.5 + (rand * 0.5)))
           request = unprocessed
 
         end
+      end
+
+      if failed_count > 0
+        raise ActiveItem::BatchWriteError.new(
+          model_name: name,
+          table: table_name,
+          failed_count: failed_count,
+          total_count: records.size
+        )
       end
 
       records.each { |r| r.instance_variable_set(:@new_record, false) }
