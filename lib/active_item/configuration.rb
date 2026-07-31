@@ -10,8 +10,8 @@ module ActiveItem
 
     def initialize
       @logger = NullLogger.new
-      @table_prefix = nil
-      @environment = nil
+      @table_prefix = ENV.fetch('APP_NAME', nil)
+      @environment = ENV.fetch('ENVIRONMENT', nil)
     end
 
     # Generates table name from model class name using configured prefix/env
