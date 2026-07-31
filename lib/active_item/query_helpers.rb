@@ -118,7 +118,7 @@ module ActiveItem
         end
       end
 
-      if failed_count > 0
+      if failed_count.positive?
         raise ActiveItem::BatchWriteError.new(
           model_name: name,
           table: table_name,
