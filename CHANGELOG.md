@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.13
+
+### Changed
+
+- **Configuration defaults from ENV** — `table_prefix` now defaults to `ENV['APP_NAME']` and `environment` defaults to `ENV['ENVIRONMENT']` instead of `nil`. Explicit `.configure` calls still override. This eliminates the boilerplate `ActiveItem.configure` block in most Belt apps.
+
 ## 0.0.9
 
 ### Fixed
