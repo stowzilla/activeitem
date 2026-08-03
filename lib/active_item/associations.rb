@@ -78,6 +78,7 @@ module ActiveItem
         foreign_key = options[:foreign_key] || "#{name}_id"
         remote_primary_key = options[:primary_key]
         optional = options.fetch(:optional, false)
+        index_option = options.fetch(:index, true)
 
         self._associations = _associations.merge(
           association_name => {
@@ -91,6 +92,8 @@ module ActiveItem
 
         validates foreign_key_sym, presence: true unless optional
 
+        register_belongs_to_index(association_name, foreign_key, index_option)
+
         define_method(association_name) { load_belongs_to_association(association_name) }
 
         define_method("#{association_name}=") { |record| set_belongs_to_association(association_name, record) }
@@ -100,6 +103,21 @@ module ActiveItem
 
         define_method(default_foreign_key) { send(foreign_key) }
         define_method("#{default_foreign_key}=") { |value| send("#{foreign_key}=", value) }
+      end
+
+      def register_belongs_to_index(association_name, foreign_key, index_option)
+        return if index_option == false
+
+        index_name = if index_option.is_a?(String)
+                       index_option
+                     else
+                       "#{association_name.to_s.camelize}Index"
+                     end
+
+        @_belongs_to_indexes ||= {}
+        @_belongs_to_indexes = @_belongs_to_indexes.merge(
+          index_name => { partition_key: foreign_key }
+        )
       end
     end
 

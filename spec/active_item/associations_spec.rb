@@ -49,6 +49,119 @@ RSpec.describe ActiveItem::Associations do
       book = book_class.new(title: 'Test')
       expect(book.author).to be_nil
     end
+
+    describe 'auto-index registration' do
+      it 'registers a conventional index from belongs_to' do
+        klass = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-comments"
+          belongs_to :post
+
+          def self.name
+            'Comment'
+          end
+        end
+        klass.dynamodb = dynamo_client
+
+        expect(klass.indexes).to include('PostIndex' => { partition_key: 'post_id' })
+      end
+
+      it 'registers indexes for multiple belongs_to associations' do
+        klass = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-authorings"
+          belongs_to :book
+          belongs_to :author
+
+          def self.name
+            'Authoring'
+          end
+        end
+        klass.dynamodb = dynamo_client
+
+        expect(klass.indexes).to include(
+          'BookIndex' => { partition_key: 'book_id' },
+          'AuthorIndex' => { partition_key: 'author_id' }
+        )
+      end
+
+      it 'suppresses index with index: false' do
+        klass = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-logs"
+          belongs_to :user, index: false
+
+          def self.name
+            'Log'
+          end
+        end
+        klass.dynamodb = dynamo_client
+
+        expect(klass.indexes.keys).not_to include('UserIndex')
+      end
+
+      it 'uses custom index name with index: "CustomName"' do
+        klass = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-items"
+          belongs_to :owner, class_name: 'User', index: 'OwnerLookup'
+
+          def self.name
+            'Item'
+          end
+        end
+        klass.dynamodb = dynamo_client
+
+        expect(klass.indexes).to include('OwnerLookup' => { partition_key: 'owner_id' })
+        expect(klass.indexes.keys).not_to include('OwnerIndex')
+      end
+
+      it 'explicit indexes() takes priority over auto-registered' do
+        klass = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-tasks"
+          belongs_to :project
+
+          indexes(
+            'ProjectIndex' => { partition_key: 'project_id', sort_key: 'created_at' }
+          )
+
+          def self.name
+            'Task'
+          end
+        end
+        klass.dynamodb = dynamo_client
+
+        expect(klass.indexes['ProjectIndex']).to eq(partition_key: 'project_id', sort_key: 'created_at')
+      end
+
+      it 'works with has_many index auto-detection on the parent' do
+        child_class = Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-children"
+          belongs_to :parent
+
+          def self.name
+            'Child'
+          end
+        end
+        child_class.dynamodb = dynamo_client
+        stub_const('Child', child_class)
+
+        parent_klass = Class.new(ActiveItem::Base) do
+          def self.name
+            'Parent'
+          end
+
+          self.table_name = "#{TABLE_PREFIX}-parents"
+          has_many :children
+        end
+        parent_klass.dynamodb = dynamo_client
+
+        # Child should have ParentIndex auto-registered
+        expect(child_class.indexes).to include('ParentIndex' => { partition_key: 'parent_id' })
+
+        # Parent.has_many should be able to resolve the index via detect_index_for_conditions
+        parent = parent_klass.new
+        parent.save
+        relation = parent.children
+        expect(relation).to be_a(ActiveItem::Relation)
+      end
+    end
   end
 
   describe 'has_many' do
