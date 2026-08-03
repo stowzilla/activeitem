@@ -38,6 +38,12 @@ TABLES = {
       { index_name: 'AuthorIndex', key_schema: [{ attribute_name: 'authorId', key_type: 'HASH' }] }
     ]
   },
+  "#{TABLE_PREFIX}-authorings" => {
+    gsis: [
+      { index_name: 'BookIndex', key_schema: [{ attribute_name: 'bookId', key_type: 'HASH' }] },
+      { index_name: 'AuthorIndex', key_schema: [{ attribute_name: 'authorId', key_type: 'HASH' }] }
+    ]
+  },
   "#{TABLE_PREFIX}-parents" => { gsis: [] },
   "#{TABLE_PREFIX}-children" => {
     gsis: [

@@ -1557,6 +1557,8 @@ module ActiveItem
         preload_belongs_to(records, assoc_name, assoc_config)
       when :has_many
         preload_has_many_records(records, assoc_name, assoc_config)
+      when :has_many_through
+        preload_has_many_through(records, assoc_name, assoc_config)
       end
     end
 
@@ -1567,12 +1569,16 @@ module ActiveItem
 
       case mode
       when :count
-        unless assoc_config[:type] == :has_many
+        unless %i[has_many has_many_through].include?(assoc_config[:type])
           raise ArgumentError,
                 "count preloading only supported for has_many (got #{assoc_config[:type]} for #{assoc_name})"
         end
 
-        preload_has_many_counts(records, assoc_name, assoc_config)
+        if assoc_config[:type] == :has_many_through
+          preload_has_many_through_counts(records, assoc_name, assoc_config)
+        else
+          preload_has_many_counts(records, assoc_name, assoc_config)
+        end
       when :records
         preload_symbol_association(records, assoc_name)
       else
@@ -1798,6 +1804,71 @@ module ActiveItem
         pk_value = record.send(local_key)
         associated = records_by_parent[pk_value] || []
         record._preloaded_associations[assoc_name] = associated
+      end
+    end
+
+    # Preload has_many :through associations efficiently.
+    # 3 total queries for N parent records:
+    #   1. Load all intermediate (join) records for all parents (parallel GSI queries)
+    #   2. Collect unique target IDs from intermediates
+    #   3. Single batch_find for all target records
+    #
+    # @param records [Array] Parent records
+    # @param assoc_name [Symbol] Association name (e.g., :authors)
+    # @param config [Hash] Association config from _associations
+    def preload_has_many_through(records, assoc_name, config)
+      through_name = config[:through]
+      source_name = config[:source]
+      target_class = safe_constantize_model(config[:class_name])
+
+      through_config = resolved_model._associations[through_name]
+      raise ArgumentError, "Unknown through association: #{through_name}" unless through_config
+
+      # Step 1: Preload the intermediate association on all records
+      preload_has_many_records(records, through_name, through_config)
+
+      # Step 2: Collect all target IDs from intermediate records
+      target_foreign_key = "#{source_name}_id"
+      all_target_ids = []
+      intermediate_by_parent = {}
+
+      records.each do |record|
+        intermediates = record._preloaded_associations[through_name] || []
+        ids = intermediates.filter_map { |r| r.send(target_foreign_key) }
+        intermediate_by_parent[record.id] = ids
+        all_target_ids.concat(ids)
+      end
+
+      all_target_ids.uniq!
+
+      # Step 3: Single batch_find for all target records
+      target_records_by_id = if all_target_ids.any?
+                               target_class.batch_find(all_target_ids).to_h { |r| [r.id, r] }
+                             else
+                               {}
+                             end
+
+      # Cache resolved target records on each parent
+      records.each do |record|
+        ids = intermediate_by_parent[record.id] || []
+        associated = ids.filter_map { |tid| target_records_by_id[tid] }
+        record._preloaded_associations[assoc_name] = associated
+      end
+    end
+
+    # Preload has_many :through counts efficiently.
+    # Uses the intermediate association's count per parent (avoids loading target records).
+    def preload_has_many_through_counts(records, assoc_name, config)
+      through_name = config[:through]
+      through_config = resolved_model._associations[through_name]
+      raise ArgumentError, "Unknown through association: #{through_name}" unless through_config
+
+      # Count of through records == count of target records (1:1 via join)
+      preload_has_many_counts(records, through_name, through_config)
+
+      # Copy the through counts as the through-association counts
+      records.each do |record|
+        record._preloaded_counts[assoc_name] = record._preloaded_counts[through_name] || 0
       end
     end
   end

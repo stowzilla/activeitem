@@ -52,6 +52,12 @@ module ActiveItem
         end
 
         association_name = name.to_sym
+
+        if options[:through]
+          define_has_many_through(association_name, options)
+          return
+        end
+
         class_name = options[:class_name] || name.to_s.singularize.camelize
         foreign_key = options[:foreign_key] || "#{self.name.underscore}_id"
         index_name = options[:index]
@@ -71,6 +77,29 @@ module ActiveItem
           _preloaded_counts.key?(association_name) ? _preloaded_counts[association_name] : send(association_name).length
         end
       end
+
+      private
+
+      def define_has_many_through(association_name, options)
+        through_name = options[:through].to_sym
+        source_name = options[:source]&.to_sym || association_name.to_s.singularize.to_sym
+        class_name = options[:class_name] || association_name.to_s.singularize.camelize
+
+        self._associations = _associations.merge(
+          association_name => {
+            type: :has_many_through, through: through_name, source: source_name,
+            class_name: class_name
+          }
+        )
+
+        define_method(association_name) { load_has_many_through_association(association_name) }
+
+        define_method(:"#{association_name}_count") do
+          _preloaded_counts.key?(association_name) ? _preloaded_counts[association_name] : send(association_name).length
+        end
+      end
+
+      public
 
       def belongs_to(name, options = {})
         association_name = name.to_sym
@@ -145,6 +174,35 @@ module ActiveItem
       else
         relation
       end
+    end
+
+    # Load a has_many :through association.
+    # Two queries: GSI query on join table → batch_find on target table.
+    def load_has_many_through_association(name)
+      config = self.class._associations[name]
+      return Relation.new(Object, conditions: { _empty: true }) unless config
+
+      # If preloaded (via includes), return cached records
+      return Relation.new(nil, preloaded_records: _preloaded_associations[name], class_name: config[:class_name]) if _preloaded_associations.key?(name)
+
+      through_name = config[:through]
+      source_name = config[:source]
+      target_class = safe_constantize_model(config[:class_name])
+
+      # Query 1: Load intermediate records via the through association
+      intermediate_records = send(through_name).to_a
+
+      # Determine the foreign key on the join model that points to the target
+      # Convention: source_name + "_id" (e.g., :author → "author_id")
+      target_foreign_key = "#{source_name}_id"
+      target_ids = intermediate_records.filter_map { |r| r.send(target_foreign_key) }.uniq
+
+      return Relation.new(nil, preloaded_records: [], class_name: config[:class_name]) if target_ids.empty?
+
+      # Query 2: Batch load target records
+      target_records = target_class.batch_find(target_ids)
+
+      Relation.new(nil, preloaded_records: target_records, class_name: config[:class_name])
     end
 
     def load_belongs_to_association(name)
