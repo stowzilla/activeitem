@@ -327,7 +327,7 @@ module ActiveItem
       if index_definitions
         @index_definitions = index_definitions
       else
-        RECENT_INDEX.merge(@index_definitions || {})
+        RECENT_INDEX.merge(@_belongs_to_indexes || {}).merge(@index_definitions || {})
       end
     end
 
