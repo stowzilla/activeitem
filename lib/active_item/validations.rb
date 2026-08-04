@@ -50,5 +50,47 @@ module ActiveItem
     def validates_uniqueness_of(*attributes, **options)
       validates(*attributes, uniqueness: options.empty? || options)
     end
+
+    # Validates that the associated records are valid.
+    # If any associated record is invalid, errors are added to the parent.
+    #
+    # @example
+    #   class Conversation < ApplicationRecord
+    #     has_many :messages
+    #     validates_associated :messages
+    #   end
+    #
+    #   conversation.messages.build(role: "invalid")
+    #   conversation.valid? # => false
+    #   conversation.errors[:messages] # => ["is invalid"]
+    def validates_associated(*associations, **options)
+      validates(*associations, associated: options.empty? || options)
+    end
+  end
+
+  # ActiveModel validator that checks associated records are valid.
+  # Validates in-memory built records (via .build) and already-loaded records.
+  # Does not trigger a DB query — only checks what's already in memory.
+  class AssociatedValidator < ActiveModel::EachValidator
+    def validate_each(record, attribute, _value)
+      association_config = record.class._associations[attribute]
+      return unless association_config
+
+      associated = record.send(attribute)
+
+      # Only validate loaded/cached records — don't trigger a DB query
+      records = if associated.respond_to?(:loaded?) && associated.loaded?
+                  associated.to_a
+                else
+                  []
+                end
+
+      records.each do |child|
+        next if child.valid?
+
+        record.errors.add(attribute, :invalid, **options.except(:on))
+        break
+      end
+    end
   end
 end
