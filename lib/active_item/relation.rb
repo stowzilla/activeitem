@@ -547,7 +547,8 @@ module ActiveItem
       if effective_index && normalized_conditions.any? && normalized_conditions.values.first.is_a?(Array)
         index_config = resolved_model.indexes[effective_index] || {}
         ruby_partition_key = normalized_conditions.keys.first.to_s
-        dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+        raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
+        dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
         return fanout_paginated_query(effective_index, normalized_conditions, index_config, dynamo_partition_key,
                                       normalized_conditions.values.first, cursor, per_page)
       end
@@ -559,6 +560,12 @@ module ActiveItem
       else
         paginated_scan_with_conditions(normalized_conditions, exclusive_start_key, per_page)
       end
+    rescue Aws::DynamoDB::Errors::ValidationException => e
+      raise unless e.message.include?('specified index')
+
+      warn "[ActiveItem] WARNING: Index not found on table '#{resolved_model.table_name}'. " \
+           'Falling back to table scan. Create the index: belt setup tables && belt deploy'
+      paginated_scan_with_conditions(normalized_conditions, exclusive_start_key, per_page)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                               operation: 'PaginatedQuery', original_error: e)
@@ -606,7 +613,8 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+      raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
+      dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
 
       params = {
         table_name: resolved_model.table_name,
@@ -788,7 +796,7 @@ module ActiveItem
                   effective_index = index_name || resolved_model.send(:detect_index_for_conditions, normalized_conditions)
 
                   if effective_index && normalized_conditions.any?
-                    query_with_index_normalized(effective_index, normalized_conditions)
+                    query_with_index_or_fallback(effective_index, normalized_conditions)
                   else
                     scan_with_conditions_normalized(normalized_conditions)
                   end
@@ -838,6 +846,13 @@ module ActiveItem
       end
 
       limit_value ? [total, limit_value].min : total
+    rescue Aws::DynamoDB::Errors::ValidationException => e
+      raise unless e.message.include?('specified index')
+
+      warn "[ActiveItem] WARNING: Index not found on table '#{resolved_model.table_name}'. " \
+           'Falling back to table scan for count. Create the index: belt setup tables && belt deploy'
+      # Retry without the index
+      count_via_scan(normalized_conditions)
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: resolved_model.name, table: resolved_model.table_name,
                                               operation: 'Count', original_error: e)
@@ -848,7 +863,8 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+      raw_partition_key = index_config[:partition_key]&.to_s || ruby_partition_key
+      dynamo_partition_key = resolved_model.to_dynamo_key(raw_partition_key)
 
       params = {
         table_name: resolved_model.table_name,
@@ -911,6 +927,26 @@ module ActiveItem
       params
     end
 
+    # Fallback count via scan when an index is missing
+    def count_via_scan(normalized_conditions)
+      total = 0
+      exclusive_start_key = nil
+
+      loop do
+        params = build_count_scan_params(normalized_conditions)
+        params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
+        params[:limit] = limit_value if limit_value
+
+        response = resolved_model.dynamodb.scan(params)
+        total += response.count
+        exclusive_start_key = response.last_evaluated_key
+        break unless exclusive_start_key
+        break if limit_value && total >= limit_value
+      end
+
+      limit_value ? [total, limit_value].min : total
+    end
+
     # Build scan params for a count-only scan
     def build_count_scan_params(normalized_conditions)
       filter_parts = []
@@ -944,7 +980,8 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+      raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
+      dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
 
       params = {
         table_name: resolved_model.table_name,
@@ -1082,6 +1119,18 @@ module ActiveItem
       foreign_key.to_s == attr_name ? nil : foreign_key.to_s
     end
 
+    # Attempt a GSI query, falling back to a filtered scan if the index doesn't exist.
+    # Logs a warning when falling back so the developer knows to create the index.
+    def query_with_index_or_fallback(idx_name, normalized_conditions)
+      query_with_index_normalized(idx_name, normalized_conditions)
+    rescue Aws::DynamoDB::Errors::ValidationException => e
+      raise unless e.message.include?('specified index')
+
+      warn "[ActiveItem] WARNING: Index '#{idx_name}' not found on table '#{resolved_model.table_name}'. " \
+           'Falling back to table scan. Create the index for better performance: belt setup tables && belt deploy'
+      scan_with_conditions_normalized(normalized_conditions)
+    end
+
     def query_with_index_normalized(idx_name, normalized_conditions)
       # Get the partition key from conditions (Ruby snake_case)
       ruby_partition_key = normalized_conditions.keys.first.to_s
@@ -1090,7 +1139,9 @@ module ActiveItem
       # Get the actual DynamoDB partition key name from the index definition
       # The index definition stores the DynamoDB key name (which may be camelCase)
       index_config = resolved_model.indexes[idx_name] || {}
-      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
+      raw_partition_key = index_config[:partition_key]&.to_s || ruby_partition_key
+      # Always convert to DynamoDB key format (camelCase) for the expression
+      dynamo_partition_key = resolved_model.to_dynamo_key(raw_partition_key)
 
       return fanout_query(idx_name, normalized_conditions, index_config, dynamo_partition_key, partition_value) if partition_value.is_a?(Array)
 
