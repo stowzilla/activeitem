@@ -547,8 +547,7 @@ module ActiveItem
       if effective_index && normalized_conditions.any? && normalized_conditions.values.first.is_a?(Array)
         index_config = resolved_model.indexes[effective_index] || {}
         ruby_partition_key = normalized_conditions.keys.first.to_s
-        raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
-        dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
+        dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
         return fanout_paginated_query(effective_index, normalized_conditions, index_config, dynamo_partition_key,
                                       normalized_conditions.values.first, cursor, per_page)
       end
@@ -613,8 +612,7 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
-      dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
+      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
       params = {
         table_name: resolved_model.table_name,
@@ -863,8 +861,7 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      raw_partition_key = index_config[:partition_key]&.to_s || ruby_partition_key
-      dynamo_partition_key = resolved_model.to_dynamo_key(raw_partition_key)
+      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
       params = {
         table_name: resolved_model.table_name,
@@ -980,8 +977,7 @@ module ActiveItem
       partition_value = normalized_conditions.values.first
 
       index_config = resolved_model.indexes[idx_name] || {}
-      raw_pk = index_config[:partition_key]&.to_s || ruby_partition_key
-      dynamo_partition_key = resolved_model.to_dynamo_key(raw_pk)
+      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
       params = {
         table_name: resolved_model.table_name,
@@ -1139,9 +1135,8 @@ module ActiveItem
       # Get the actual DynamoDB partition key name from the index definition
       # The index definition stores the DynamoDB key name (which may be camelCase)
       index_config = resolved_model.indexes[idx_name] || {}
-      raw_partition_key = index_config[:partition_key]&.to_s || ruby_partition_key
       # Always convert to DynamoDB key format (camelCase) for the expression
-      dynamo_partition_key = resolved_model.to_dynamo_key(raw_partition_key)
+      dynamo_partition_key = index_config[:partition_key]&.to_s || resolved_model.to_dynamo_key(ruby_partition_key)
 
       return fanout_query(idx_name, normalized_conditions, index_config, dynamo_partition_key, partition_value) if partition_value.is_a?(Array)
 

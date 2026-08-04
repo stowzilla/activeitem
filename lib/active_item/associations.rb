@@ -143,9 +143,13 @@ module ActiveItem
                        "#{association_name.to_s.camelize}Index"
                      end
 
+        # Store partition key in DynamoDB format (camelCase) for consistency
+        # with RECENT_INDEX and explicit index definitions
+        dynamo_key = to_dynamo_key(foreign_key)
+
         @_belongs_to_indexes ||= {}
         @_belongs_to_indexes = @_belongs_to_indexes.merge(
-          index_name => { partition_key: foreign_key }
+          index_name => { partition_key: dynamo_key }
         )
       end
     end
