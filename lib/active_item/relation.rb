@@ -374,6 +374,39 @@ module ActiveItem
       record
     end
 
+    # Build a new record with the foreign key pre-set (does not save).
+    # Usage: conversation.messages.build(role: "user", body: "hello")
+    # @param attributes [Hash] Attributes for the new record
+    # @return [ActiveItem::Base] The unsaved record
+    def build(attributes = {})
+      foreign_key, foreign_value = conditions.first
+      resolved_model.new(attributes.merge(foreign_key => foreign_value))
+    end
+
+    # Build and save a new record with the foreign key pre-set.
+    # Returns the record (may be invalid — check .persisted? or .errors).
+    # Usage: conversation.messages.create(role: "user", body: "hello")
+    # @param attributes [Hash] Attributes for the new record
+    # @return [ActiveItem::Base] The record (saved if valid)
+    def create(attributes = {})
+      record = build(attributes)
+      record.save
+      reload
+      record
+    end
+
+    # Build and save a new record with the foreign key pre-set.
+    # Raises ActiveItem::RecordInvalid if validations fail.
+    # Usage: conversation.messages.create!(role: "user", body: "hello")
+    # @param attributes [Hash] Attributes for the new record
+    # @return [ActiveItem::Base] The persisted record
+    def create!(attributes = {})
+      record = build(attributes)
+      record.save!
+      reload
+      record
+    end
+
     # Returns the DynamoDB operation that would be executed, without running it.
     # Analogous to ActiveRecord's .to_sql — shows the operation type, table, index,
     # key conditions, filters, and limits in DynamoDB terms.

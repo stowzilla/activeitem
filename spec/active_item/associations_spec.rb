@@ -178,17 +178,67 @@ RSpec.describe ActiveItem::Associations do
       end.tap { |klass| klass.dynamodb = dynamo_client }
     end
 
-    it 'returns a Relation' do
-      stub_const('Child', Class.new(ActiveItem::Base) do
+    let(:child_class) do
+      Class.new(ActiveItem::Base) do
         self.table_name = "#{TABLE_PREFIX}-children"
-        def self.name = 'Child'
-      end.tap { |k| k.dynamodb = dynamo_client })
+        attr_accessor :parent_id, :label
 
+        belongs_to :parent, class_name: 'Parent', optional: true
+
+        def self.name
+          'Child'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+    end
+
+    before do
+      stub_const('Child', child_class)
+      stub_const('Parent', parent_class)
+    end
+
+    it 'returns a Relation' do
       parent = parent_class.new(name: 'Test')
       parent.save
 
       result = parent.children
       expect(result).to be_a(ActiveItem::Relation)
+    end
+
+    describe '#build' do
+      it 'returns an unsaved record with the foreign key set' do
+        parent = parent_class.new(name: 'Test')
+        parent.save
+
+        child = parent.children.build(label: 'built-child')
+        expect(child).to be_a(child_class)
+        expect(child.parent_id).to eq(parent.id)
+        expect(child.label).to eq('built-child')
+        expect(child.id).to be_nil
+      end
+    end
+
+    describe '#create' do
+      it 'saves the record and returns it' do
+        parent = parent_class.new(name: 'Test')
+        parent.save
+
+        child = parent.children.create(label: 'created-child')
+        expect(child.id).not_to be_nil
+        expect(child.parent_id).to eq(parent.id)
+        expect(child.label).to eq('created-child')
+      end
+    end
+
+    describe '#create!' do
+      it 'saves the record and returns it' do
+        parent = parent_class.new(name: 'Test')
+        parent.save
+
+        child = parent.children.create!(label: 'created-bang-child')
+        expect(child.id).not_to be_nil
+        expect(child.parent_id).to eq(parent.id)
+        expect(child.label).to eq('created-bang-child')
+      end
     end
   end
 end
