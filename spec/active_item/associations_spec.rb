@@ -62,7 +62,7 @@ RSpec.describe ActiveItem::Associations do
         end
         klass.dynamodb = dynamo_client
 
-        expect(klass.indexes).to include('PostIndex' => { partition_key: 'post_id' })
+        expect(klass.indexes).to include('PostIndex' => { partition_key: 'postId' })
       end
 
       it 'registers indexes for multiple belongs_to associations' do
@@ -78,8 +78,8 @@ RSpec.describe ActiveItem::Associations do
         klass.dynamodb = dynamo_client
 
         expect(klass.indexes).to include(
-          'BookIndex' => { partition_key: 'book_id' },
-          'AuthorIndex' => { partition_key: 'author_id' }
+          'BookIndex' => { partition_key: 'bookId' },
+          'AuthorIndex' => { partition_key: 'authorId' }
         )
       end
 
@@ -108,7 +108,7 @@ RSpec.describe ActiveItem::Associations do
         end
         klass.dynamodb = dynamo_client
 
-        expect(klass.indexes).to include('OwnerLookup' => { partition_key: 'owner_id' })
+        expect(klass.indexes).to include('OwnerLookup' => { partition_key: 'ownerId' })
         expect(klass.indexes.keys).not_to include('OwnerIndex')
       end
 
@@ -153,7 +153,7 @@ RSpec.describe ActiveItem::Associations do
         parent_klass.dynamodb = dynamo_client
 
         # Child should have ParentIndex auto-registered
-        expect(child_class.indexes).to include('ParentIndex' => { partition_key: 'parent_id' })
+        expect(child_class.indexes).to include('ParentIndex' => { partition_key: 'parentId' })
 
         # Parent.has_many should be able to resolve the index via detect_index_for_conditions
         parent = parent_klass.new
