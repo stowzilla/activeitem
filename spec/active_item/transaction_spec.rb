@@ -29,16 +29,15 @@ RSpec.describe ActiveItem::Transaction do
 
   before do
     # Ensure other_things table exists
-    begin
-      dynamo_client.describe_table(table_name: "#{TABLE_PREFIX}-other-things")
-    rescue Aws::DynamoDB::Errors::ResourceNotFoundException
-      dynamo_client.create_table(
-        table_name: "#{TABLE_PREFIX}-other-things",
-        key_schema: [{ attribute_name: 'id', key_type: 'HASH' }],
-        attribute_definitions: [{ attribute_name: 'id', attribute_type: 'S' }],
-        billing_mode: 'PAY_PER_REQUEST'
-      )
-    end
+
+    dynamo_client.describe_table(table_name: "#{TABLE_PREFIX}-other-things")
+  rescue Aws::DynamoDB::Errors::ResourceNotFoundException
+    dynamo_client.create_table(
+      table_name: "#{TABLE_PREFIX}-other-things",
+      key_schema: [{ attribute_name: 'id', key_type: 'HASH' }],
+      attribute_definitions: [{ attribute_name: 'id', attribute_type: 'S' }],
+      billing_mode: 'PAY_PER_REQUEST'
+    )
   end
 
   describe '.active?' do

@@ -152,9 +152,92 @@ module ActiveItem
           index_name => { partition_key: dynamo_key }
         )
       end
-    end
 
-    private
+      # Allows nested attributes for associated records, similar to Rails.
+      # Defines a writer method that builds or updates child records through the parent.
+      #
+      # @example
+      #   class Conversation < ApplicationRecord
+      #     has_many :messages
+      #     accepts_nested_attributes_for :messages
+      #   end
+      #
+      #   conversation.messages_attributes = [
+      #     { role: 'user', body: 'Hello' },
+      #     { role: 'assistant', body: 'Hi there' }
+      #   ]
+      #   conversation.save  # saves parent and creates children
+      #
+      # @param associations [Array<Symbol>] Association names to accept nested attributes for
+      # @param options [Hash] Options (allow_destroy: true to enable _destroy flag)
+      def accepts_nested_attributes_for(*associations, **options)
+        associations.each do |association_name|
+          define_nested_attributes_writer(association_name, options)
+        end
+      end
+
+      private
+
+      def define_nested_attributes_writer(association_name, options)
+        writer_method = :"#{association_name}_attributes="
+        allow_destroy = options.fetch(:allow_destroy, false)
+
+        # Store pending nested records for saving after parent
+        define_method(writer_method) do |attributes_collection|
+          attributes_collection = attributes_collection.values if attributes_collection.is_a?(Hash)
+          @_nested_attributes ||= {}
+          @_nested_attributes[association_name] = { records: attributes_collection, allow_destroy: allow_destroy }
+        end
+
+        # Hook into save to persist nested records
+        define_method(:save_with_nested) do
+          result = save_without_nested
+          return result unless result
+
+          save_nested_attributes
+          result
+        end
+
+        define_method(:save_nested_attributes) do
+          return unless instance_variable_defined?(:@_nested_attributes) && @_nested_attributes
+
+          self.class.transaction do
+            @_nested_attributes.each do |assoc_name, config|
+              assoc_config = self.class._associations[assoc_name]
+              next unless assoc_config
+
+              target_class = safe_constantize_model(assoc_config[:class_name])
+              foreign_key = assoc_config[:foreign_key]
+
+              config[:records].each do |attrs|
+                attrs = attrs.transform_keys(&:to_sym)
+
+                if attrs[:_destroy] && config[:allow_destroy]
+                  if attrs[:id]
+                    record = target_class.find(attrs[:id])
+                    record.destroy!
+                  end
+                elsif attrs[:id]
+                  record = target_class.find(attrs[:id])
+                  record.assign_attributes(attrs.except(:id, :_destroy))
+                  record.save!
+                else
+                  target_class.create!(attrs.merge(foreign_key.to_sym => id))
+                end
+              end
+            end
+          end
+
+          @_nested_attributes = nil
+        end
+
+        # Wrap save to include nested attributes
+        return if method_defined?(:save_without_nested)
+
+        alias_method :save_without_nested, :save
+        alias_method :save, :save_with_nested
+      end
+    end
 
     def load_has_many_association(name)
       config = self.class._associations[name]

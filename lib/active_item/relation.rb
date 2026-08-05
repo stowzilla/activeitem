@@ -31,6 +31,11 @@ module ActiveItem
       @select_attributes = select_attributes # Projection expression attributes
     end
 
+    # Whether the relation's records have been loaded from DynamoDB.
+    def loaded?
+      @loaded
+    end
+
     # Chainable includes - preload associations to avoid N+1 queries
     #
     # Supports three forms:

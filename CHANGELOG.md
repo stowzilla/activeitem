@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.19
+
+### Added
+
+- **`validates_associated`** — Validates that associated records (loaded via `has_many`) are valid before saving the parent. Only checks in-memory/loaded records — does not trigger DB queries for unloaded associations.
+
+- **`accepts_nested_attributes_for`** — Define nested attribute writers for has_many associations. Supports create, update, and destroy of child records through the parent's save. Nested saves are now wrapped in a DynamoDB transaction for atomicity — if any child operation fails, none are committed.
+
+  ```ruby
+  class Conversation < ActiveItem::Base
+    has_many :messages
+    accepts_nested_attributes_for :messages, allow_destroy: true
+  end
+
+  conversation.messages_attributes = [
+    { role: 'user', body: 'Hello' },
+    { id: 'msg-1', body: 'Updated text' },
+    { id: 'msg-2', _destroy: true }
+  ]
+  conversation.save  # atomic: all children created/updated/destroyed together
+  ```
+
+- **`Relation#loaded?`** — Check whether a has_many relation's records have been loaded into memory.
+
 ## 0.0.18
 
 ### Added

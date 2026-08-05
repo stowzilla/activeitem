@@ -241,4 +241,363 @@ RSpec.describe ActiveItem::Associations do
       end
     end
   end
+
+  describe 'validates_associated' do
+    let(:validated_child_class) do
+      Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-children"
+        attr_accessor :parent_id, :label
+
+        validates :label, presence: true
+
+        belongs_to :parent, class_name: 'ValidatedParent', optional: true
+
+        def self.name
+          'Child'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+    end
+
+    let(:validated_parent_class) do
+      Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-parents"
+        attr_accessor :name
+
+        has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
+        validates_associated :children
+
+        def self.name
+          'ValidatedParent'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+    end
+
+    before do
+      stub_const('Child', validated_child_class)
+      stub_const('ValidatedParent', validated_parent_class)
+    end
+
+    it 'is valid when no associated records are loaded' do
+      parent = validated_parent_class.new(name: 'Test')
+      expect(parent).to be_valid
+    end
+
+    it 'is valid when loaded associated records are all valid' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      child = validated_child_class.new(parent_id: parent.id, label: 'good')
+      child.save
+
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [child], class_name: 'Child')
+      allow(parent).to receive(:children).and_return(relation)
+
+      expect(parent).to be_valid
+    end
+
+    it 'is invalid when a loaded associated record is invalid' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      invalid_child = validated_child_class.new(parent_id: parent.id, label: '')
+
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [invalid_child], class_name: 'Child')
+      allow(parent).to receive(:children).and_return(relation)
+
+      expect(parent).not_to be_valid
+      expect(parent.errors[:children]).to include('is invalid')
+    end
+
+    it 'adds only one error even when multiple children are invalid' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      first_invalid = validated_child_class.new(parent_id: parent.id, label: '')
+      second_invalid = validated_child_class.new(parent_id: parent.id, label: '')
+
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [first_invalid, second_invalid], class_name: 'Child')
+      allow(parent).to receive(:children).and_return(relation)
+
+      expect(parent).not_to be_valid
+      expect(parent.errors[:children].length).to eq(1)
+    end
+
+    it 'is invalid when at least one child among many is invalid' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      valid_child = validated_child_class.new(parent_id: parent.id, label: 'good')
+      invalid_child = validated_child_class.new(parent_id: parent.id, label: '')
+
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [valid_child, invalid_child], class_name: 'Child')
+      allow(parent).to receive(:children).and_return(relation)
+
+      expect(parent).not_to be_valid
+      expect(parent.errors[:children]).to include('is invalid')
+    end
+
+    it 'does not fail when association is unloaded (graceful fallback)' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      # Even with invalid children in DB, unloaded association means no validation error
+      dynamo_client.put_item(
+        table_name: "#{TABLE_PREFIX}-children",
+        item: { 'id' => 'bad-child', 'parentId' => parent.id, 'label' => '' }
+      )
+
+      expect(parent).to be_valid
+    end
+
+    it 'prevents save when associated records are invalid' do
+      parent = validated_parent_class.new(name: 'Test')
+      parent.save
+
+      invalid_child = validated_child_class.new(parent_id: parent.id, label: '')
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [invalid_child], class_name: 'Child')
+      allow(parent).to receive(:children).and_return(relation)
+
+      expect(parent.save).to be false
+    end
+  end
+
+  describe 'accepts_nested_attributes_for' do
+    let(:nested_child_class) do
+      Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-children"
+        attr_accessor :parent_id, :label
+
+        belongs_to :parent, class_name: 'NestedParent', optional: true
+
+        def self.name
+          'Child'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+    end
+
+    let(:nested_parent_class) do
+      Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-parents"
+        attr_accessor :name
+
+        has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
+        accepts_nested_attributes_for :children
+
+        def self.name
+          'NestedParent'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+    end
+
+    before do
+      stub_const('Child', nested_child_class)
+      stub_const('NestedParent', nested_parent_class)
+    end
+
+    it 'creates child records when saving parent with nested attributes' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      parent.children_attributes = [
+        { label: 'child-1' },
+        { label: 'child-2' }
+      ]
+      parent.save
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(2)
+      labels = scan.items.map { |i| i['label'] }
+      expect(labels).to contain_exactly('child-1', 'child-2')
+    end
+
+    it 'sets the foreign key on child records' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      parent.children_attributes = [{ label: 'auto-fk' }]
+      parent.save
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(1)
+      expect(scan.items.first['parentId']).to eq(parent.id)
+    end
+
+    it 'accepts hash-style attributes (keyed by index)' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      parent.children_attributes = { '0' => { label: 'hash-1' }, '1' => { label: 'hash-2' } }
+      parent.save
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(2)
+      labels = scan.items.map { |i| i['label'] }
+      expect(labels).to contain_exactly('hash-1', 'hash-2')
+    end
+
+    it 'handles string keys in attributes' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      parent.children_attributes = [{ 'label' => 'string-key' }]
+      parent.save
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(1)
+      expect(scan.items.first['label']).to eq('string-key')
+    end
+
+    it 'does not create children when parent save fails validation' do
+      validated_parent = Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-parents"
+        attr_accessor :name
+
+        validates :name, presence: true
+        has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
+        accepts_nested_attributes_for :children
+
+        def self.name
+          'NestedParent'
+        end
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+
+      parent = validated_parent.new(name: '')
+      parent.children_attributes = [{ label: 'orphan' }]
+      parent.save
+
+      scan = dynamo_client.scan(table_name: "#{TABLE_PREFIX}-children")
+      expect(scan.items).to be_empty
+    end
+
+    it 'clears nested attributes after successful save (no duplicate creation)' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      parent.children_attributes = [{ label: 'once' }]
+      parent.save
+      parent.save # second save should not re-create
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(1)
+    end
+
+    it 'updates existing child records when id is present' do
+      parent = nested_parent_class.new(name: 'Test')
+      parent.save
+
+      child = nested_child_class.new(parent_id: parent.id, label: 'original')
+      child.save
+
+      parent.children_attributes = [{ id: child.id, label: 'updated' }]
+      parent.save
+
+      scan = dynamo_client.scan(
+        table_name: "#{TABLE_PREFIX}-children",
+        filter_expression: 'parentId = :pid',
+        expression_attribute_values: { ':pid' => parent.id }
+      )
+      expect(scan.items.length).to eq(1)
+      expect(scan.items.first['label']).to eq('updated')
+    end
+
+    context 'with allow_destroy: true' do
+      let(:destroyable_parent_class) do
+        Class.new(ActiveItem::Base) do
+          self.table_name = "#{TABLE_PREFIX}-parents"
+          attr_accessor :name
+
+          has_many :children, class_name: 'Child', foreign_key: 'parent_id', index: 'ParentIndex'
+          accepts_nested_attributes_for :children, allow_destroy: true
+
+          def self.name
+            'NestedParent'
+          end
+        end.tap { |klass| klass.dynamodb = dynamo_client }
+      end
+
+      it 'destroys child records when _destroy is true' do
+        parent = destroyable_parent_class.new(name: 'Test')
+        parent.save
+
+        child = nested_child_class.new(parent_id: parent.id, label: 'doomed')
+        child.save
+
+        parent.children_attributes = [{ id: child.id, _destroy: true }]
+        parent.save
+
+        scan = dynamo_client.scan(
+          table_name: "#{TABLE_PREFIX}-children",
+          filter_expression: 'parentId = :pid',
+          expression_attribute_values: { ':pid' => parent.id }
+        )
+        expect(scan.items).to be_empty
+      end
+
+      it 'can mix create, update, and destroy in one save' do
+        parent = destroyable_parent_class.new(name: 'Test')
+        parent.save
+
+        existing = nested_child_class.new(parent_id: parent.id, label: 'keep')
+        existing.save
+        doomed = nested_child_class.new(parent_id: parent.id, label: 'remove')
+        doomed.save
+
+        parent.children_attributes = [
+          { id: existing.id, label: 'kept-updated' },
+          { id: doomed.id, _destroy: true },
+          { label: 'brand-new' }
+        ]
+        parent.save
+
+        scan = dynamo_client.scan(
+          table_name: "#{TABLE_PREFIX}-children",
+          filter_expression: 'parentId = :pid',
+          expression_attribute_values: { ':pid' => parent.id }
+        )
+        labels = scan.items.map { |i| i['label'] }
+        expect(labels).to contain_exactly('kept-updated', 'brand-new')
+      end
+    end
+
+    context 'without allow_destroy (default)' do
+      it 'ignores _destroy flag and updates the record instead' do
+        parent = nested_parent_class.new(name: 'Test')
+        parent.save
+
+        child = nested_child_class.new(parent_id: parent.id, label: 'survivor')
+        child.save
+
+        parent.children_attributes = [{ id: child.id, _destroy: true }]
+        parent.save
+
+        scan = dynamo_client.scan(
+          table_name: "#{TABLE_PREFIX}-children",
+          filter_expression: 'parentId = :pid',
+          expression_attribute_values: { ':pid' => parent.id }
+        )
+        expect(scan.items.length).to eq(1)
+        expect(scan.items.first['label']).to eq('survivor')
+      end
+    end
+  end
 end
