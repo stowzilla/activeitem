@@ -201,24 +201,29 @@ module ActiveItem
         define_method(:save_nested_attributes) do
           return unless instance_variable_defined?(:@_nested_attributes) && @_nested_attributes
 
-          @_nested_attributes.each do |assoc_name, config|
-            assoc_config = self.class._associations[assoc_name]
-            next unless assoc_config
+          self.class.transaction do
+            @_nested_attributes.each do |assoc_name, config|
+              assoc_config = self.class._associations[assoc_name]
+              next unless assoc_config
 
-            target_class = safe_constantize_model(assoc_config[:class_name])
-            foreign_key = assoc_config[:foreign_key]
+              target_class = safe_constantize_model(assoc_config[:class_name])
+              foreign_key = assoc_config[:foreign_key]
 
-            config[:records].each do |attrs|
-              attrs = attrs.transform_keys(&:to_sym)
+              config[:records].each do |attrs|
+                attrs = attrs.transform_keys(&:to_sym)
 
-              if attrs[:_destroy] && config[:allow_destroy]
-                record = target_class.find(attrs[:id]) if attrs[:id]
-                record&.destroy
-              elsif attrs[:id]
-                record = target_class.find(attrs[:id])
-                record&.update(attrs.except(:id, :_destroy))
-              else
-                target_class.create!(attrs.merge(foreign_key.to_sym => id))
+                if attrs[:_destroy] && config[:allow_destroy]
+                  if attrs[:id]
+                    record = target_class.find(attrs[:id])
+                    record.destroy!
+                  end
+                elsif attrs[:id]
+                  record = target_class.find(attrs[:id])
+                  record.assign_attributes(attrs.except(:id, :_destroy))
+                  record.save!
+                else
+                  target_class.create!(attrs.merge(foreign_key.to_sym => id))
+                end
               end
             end
           end
