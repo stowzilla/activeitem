@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.18
+
+### Added
+
+- **Transactional saves** — `save`, `save!`, `destroy`, and `destroy!` now automatically enroll in the current transaction when called inside a `Model.transaction` block. This enables an ActiveRecord-style implicit API:
+
+  ```ruby
+  Model.transaction do
+    record1.save!
+    record2.save!
+    record3.destroy!
+  end
+  ```
+
+  All operations are committed atomically at block end. The explicit API (`txn.put(record)`) continues to work for backwards compatibility.
+
+- **RecordInvalid exception** — `save!` now raises `ActiveItem::RecordInvalid` with the record attached, instead of a generic `StandardError`. This matches ActiveRecord behavior.
+
+- **Transaction.active?** — class method to check if code is executing inside a transaction block.
+
 ## 0.0.13
 
 ### Changed

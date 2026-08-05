@@ -349,6 +349,9 @@ module ActiveItem
     def save(validate: true)
       return false if validate && !run_validations
 
+      # If inside a transaction block, enroll this save in the transaction
+      return enroll_in_transaction if Transaction.active?
+
       result = run_callbacks :save do
         if new_record?
           run_callbacks(:create) { perform_create }
@@ -368,7 +371,9 @@ module ActiveItem
     end
 
     def save!
-      raise StandardError, "Validation failed: #{errors.full_messages.join(', ')}" unless save
+      raise RecordInvalid.new(self), "Validation failed: #{errors.full_messages.join(', ')}" unless save
+
+      true
     end
 
     def self.create(attributes = {})
@@ -383,10 +388,39 @@ module ActiveItem
       obj
     end
 
+    # Execute a block within a transaction context.
+    #
+    # Supports two usage patterns:
+    #
+    # 1. Explicit API (block receives transaction):
+    #      Model.transaction do |txn|
+    #        txn.put(record1)
+    #        txn.update(record2)
+    #      end
+    #
+    # 2. Implicit API (transactional saves):
+    #      Model.transaction do
+    #        record1.save!
+    #        record2.save!
+    #        record3.destroy!
+    #      end
+    #
+    # In the implicit API, save/destroy calls are automatically enrolled.
+    # The transaction is committed when the block completes successfully.
+    # If an exception is raised, no changes are committed (all-or-nothing).
+    #
+    # @yield [Transaction] the transaction object (optional)
+    # @raise [TransactionError] if the transaction fails
     def self.transaction
       txn = Transaction.new
-      yield txn
-      txn.execute!
+      Transaction.current = txn
+      begin
+        # Support both explicit (yield txn) and implicit (no block param) APIs
+        yield txn if block_given?
+        txn.execute!
+      ensure
+        Transaction.current = nil
+      end
     end
 
     def self.transaction_find(items)
@@ -408,6 +442,9 @@ module ActiveItem
     end
 
     def destroy
+      # If inside a transaction block, enroll this destroy in the transaction
+      return enroll_destroy_in_transaction if Transaction.active?
+
       result = run_callbacks(:destroy) { perform_destroy }
       return false if result == false
 
@@ -421,7 +458,9 @@ module ActiveItem
     end
 
     def destroy!
-      destroy || raise(RecordNotDestroyed.new(nil, self))
+      raise RecordNotDestroyed.new(nil, self) unless destroy
+
+      true
     end
 
     def delete
@@ -459,6 +498,37 @@ module ActiveItem
     end
 
     private
+
+    # Enroll this record's save operation in the current transaction.
+    # Called when save is invoked inside a transaction block.
+    def enroll_in_transaction
+      txn = Transaction.current
+
+      result = run_callbacks :save do
+        if new_record?
+          run_callbacks(:create) { txn.put(self) }
+        else
+          run_callbacks(:update) { txn.update(self) }
+        end
+      end
+
+      return false if result == false
+
+      # Mark changes as applied (will be committed when transaction executes)
+      # Note: @new_record stays true until transaction.execute! completes
+      true
+    end
+
+    # Enroll this record's destroy operation in the current transaction.
+    # Called when destroy is invoked inside a transaction block.
+    def enroll_destroy_in_transaction
+      txn = Transaction.current
+
+      result = run_callbacks(:destroy) { txn.delete(self) }
+      return false if result == false
+
+      true
+    end
 
     def generate_primary_key
       @id = nil if @id.to_s.strip.empty?

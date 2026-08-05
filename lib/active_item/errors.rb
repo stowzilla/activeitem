@@ -4,6 +4,17 @@ module ActiveItem
   class RecordNotFound < StandardError; end
   class TransactionError < StandardError; end
 
+  # Raised by save! when validations fail.
+  class RecordInvalid < StandardError
+    attr_reader :record
+
+    def initialize(record = nil)
+      @record = record
+      message = record ? "Validation failed: #{record.errors.full_messages.join(', ')}" : 'Validation failed'
+      super(message)
+    end
+  end
+
   # Raised when an IAM policy denies a DynamoDB operation on a table.
   class AccessDeniedError < StandardError
     attr_reader :model_name, :table, :operation, :original_error

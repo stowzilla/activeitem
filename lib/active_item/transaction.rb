@@ -3,13 +3,47 @@
 module ActiveItem
   # Wraps DynamoDB TransactWriteItems, allowing multiple put, update, and
   # delete operations to be committed atomically (up to 100 items).
+  #
+  # Supports two usage patterns:
+  #
+  # 1. Explicit API (original):
+  #      Model.transaction do |txn|
+  #        txn.put(record1)
+  #        txn.update(record2)
+  #      end
+  #
+  # 2. Implicit API (transactional saves):
+  #      Model.transaction do
+  #        record1.save!
+  #        record2.save!
+  #        record3.destroy!
+  #      end
+  #
+  # In the implicit API, save/destroy calls inside the block are automatically
+  # enrolled in the transaction and committed atomically at block end.
   class Transaction
     MAX_ITEMS = 100
 
     attr_reader :operations
 
+    class << self
+      # Thread-local storage for the current transaction context
+      def current
+        Thread.current[:activeitem_current_transaction]
+      end
+
+      def current=(txn)
+        Thread.current[:activeitem_current_transaction] = txn
+      end
+    end
+
     def initialize
       @operations = []
+    end
+
+    # Check if we're inside a transaction block
+    def self.active?
+      !current.nil?
     end
 
     def put(record, condition: nil)
