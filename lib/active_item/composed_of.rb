@@ -67,7 +67,7 @@ module ActiveItem
     end
 
     def perform_update
-      return if changes.empty?
+      return if changes.empty? && !embedded_associations_changed?
 
       compositions = self.class.compositions
       return super if compositions.empty?
