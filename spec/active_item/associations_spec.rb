@@ -312,10 +312,10 @@ RSpec.describe ActiveItem::Associations do
       parent = validated_parent_class.new(name: 'Test')
       parent.save
 
-      invalid_1 = validated_child_class.new(parent_id: parent.id, label: '')
-      invalid_2 = validated_child_class.new(parent_id: parent.id, label: '')
+      first_invalid = validated_child_class.new(parent_id: parent.id, label: '')
+      second_invalid = validated_child_class.new(parent_id: parent.id, label: '')
 
-      relation = ActiveItem::Relation.new(nil, preloaded_records: [invalid_1, invalid_2], class_name: 'Child')
+      relation = ActiveItem::Relation.new(nil, preloaded_records: [first_invalid, second_invalid], class_name: 'Child')
       allow(parent).to receive(:children).and_return(relation)
 
       expect(parent).not_to be_valid
