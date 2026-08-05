@@ -350,8 +350,7 @@ module ActiveItem
 
     def save(validate: true)
       if self.class.embedded? && !@_saving_via_parent
-        raise ActiveItem::EmbeddedModelError,
-              "Cannot save #{self.class.name} directly. Save the parent record instead."
+        return save_via_parent(validate: validate)
       end
 
       return false if validate && !run_validations
@@ -454,8 +453,7 @@ module ActiveItem
 
     def destroy
       if self.class.embedded? && !@_destroying_via_parent
-        raise ActiveItem::EmbeddedModelError,
-              "Cannot destroy #{self.class.name} directly. Remove it from the parent's collection and save the parent."
+        return destroy_via_parent
       end
 
       # If inside a transaction block, enroll this destroy in the transaction
@@ -632,6 +630,47 @@ module ActiveItem
           record.instance_variable_set(:@_saving_via_parent, false)
         end
       end
+    end
+
+    # Delegate save from an embedded record to its parent.
+    # This allows `thing.save` and `thing.update(attrs)` to work
+    # by persisting through the parent record.
+    def save_via_parent(validate: true)
+      parent = instance_variable_get(:@_embedded_parent)
+      unless parent
+        raise ActiveItem::EmbeddedModelError,
+              "Cannot save #{self.class.name} — no parent record. " \
+              "Build embedded records through the parent's collection (e.g., parent.things.build)."
+      end
+
+      if validate && respond_to?(:valid?) && !valid?
+        return false
+      end
+
+      parent.save(validate: validate)
+    end
+
+    # Delegate destroy from an embedded record to its parent.
+    # Removes itself from the parent's collection and saves the parent.
+    def destroy_via_parent
+      parent = instance_variable_get(:@_embedded_parent)
+      unless parent
+        raise ActiveItem::EmbeddedModelError,
+              "Cannot destroy #{self.class.name} — no parent record."
+      end
+
+      # Find which collection this record belongs to and remove it
+      self.class.superclass # ensure class is loaded
+      parent.class._embedded_associations.each do |assoc_name, config|
+        target_class = parent.send(:safe_constantize_model, config[:class_name])
+        next unless self.is_a?(target_class)
+
+        collection = parent.send(assoc_name)
+        collection.records.delete(self)
+        break
+      end
+
+      parent.save
     end
 
     # Snapshot the serialized state of an embedded collection for dirty comparison.
