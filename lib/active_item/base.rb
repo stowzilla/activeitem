@@ -16,6 +16,7 @@ module ActiveItem
     include ActiveModel::Dirty
     extend ActiveModel::Callbacks
     include Associations
+    include Embeddable
     include Logging
 
     define_model_callbacks :save, :create, :update, :destroy, :initialize, :validation
@@ -175,6 +176,7 @@ module ActiveItem
         record = allocate
         record.instance_variable_set(:@id, normalized_item[primary_key])
         record.send(:populate_attributes_from_item, normalized_item)
+        record.send(:populate_embedded_associations, normalized_item)
         record.instance_variable_set(:@new_record, false)
         record.instance_variable_set(:@mutations_from_database, nil)
         record.instance_variable_set(:@dbrecord, normalized_item)
@@ -289,7 +291,7 @@ module ActiveItem
     end
 
     def has_changes_to_save?
-      changed?
+      changed? || embedded_associations_changed?
     end
 
     def to_h
@@ -347,6 +349,8 @@ module ActiveItem
     end
 
     def save(validate: true)
+      return save_via_parent(validate: validate) if self.class.embedded? && !@_saving_via_parent
+
       return false if validate && !run_validations
 
       # If inside a transaction block, enroll this save in the transaction
@@ -377,12 +381,16 @@ module ActiveItem
     end
 
     def self.create(attributes = {})
+      raise_embedded_error!(:create) if respond_to?(:embedded?) && embedded?
+
       obj = new(attributes)
       obj.save
       obj
     end
 
     def self.create!(attributes = {})
+      raise_embedded_error!(:create!) if respond_to?(:embedded?) && embedded?
+
       obj = new(attributes)
       obj.save!
       obj
@@ -442,6 +450,8 @@ module ActiveItem
     end
 
     def destroy
+      return destroy_via_parent if self.class.embedded? && !@_destroying_via_parent
+
       # If inside a transaction block, enroll this destroy in the transaction
       return enroll_destroy_in_transaction if Transaction.active?
 
@@ -449,6 +459,8 @@ module ActiveItem
       return false if result == false
 
       true
+    rescue ActiveItem::EmbeddedModelError
+      raise
     rescue DeleteRestrictionError
       false
     rescue StandardError => e
@@ -552,10 +564,149 @@ module ActiveItem
 
     def run_validations
       context = new_record? ? :create : :update
-      valid?(context)
+      return false unless valid?(context)
+
+      # Cascade validations into embedded collections
+      validate_embedded_associations
+    end
+
+    # Hydrate embedded associations from a DynamoDB item hash.
+    def populate_embedded_associations(item)
+      self.class._embedded_associations.each do |assoc_name, config|
+        dynamo_key = self.class.to_dynamo_key(assoc_name.to_s)
+        raw_array = item[dynamo_key]
+        next unless raw_array.is_a?(Array)
+
+        target_class = safe_constantize_model(config[:class_name])
+        records = raw_array.map do |hash|
+          record = Embeddable.from_embedded_hash(target_class, hash)
+          record.instance_variable_set(:@_embedded_parent, self)
+          record
+        end
+
+        collection = EmbeddedCollection.new(
+          owner: self,
+          association_name: assoc_name,
+          target_class: target_class,
+          records: records
+        )
+        instance_variable_set(:"@_embedded_#{assoc_name}", collection)
+
+        # Snapshot for dirty tracking
+        instance_variable_set(:"@_embedded_#{assoc_name}_snapshot", serialize_embedded_snapshot(collection))
+      end
+    end
+
+    # Validate all embedded associations. Returns true if all valid, false otherwise.
+    def validate_embedded_associations
+      all_valid = true
+
+      self.class._embedded_associations.each_key do |assoc_name|
+        collection = send(assoc_name)
+        collection.each_with_index do |record, idx|
+          next if record.valid?
+
+          all_valid = false
+          record.errors.each do |error|
+            errors.add(:"#{assoc_name}[#{idx}].#{error.attribute}", error.message)
+          end
+        end
+      end
+
+      all_valid
+    end
+
+    # Run callbacks on embedded records during parent save.
+    def run_embedded_callbacks(callback_type)
+      self.class._embedded_associations.each_key do |assoc_name|
+        collection = send(assoc_name)
+        collection.each do |record|
+          record.instance_variable_set(:@_saving_via_parent, true)
+          record.run_callbacks(callback_type) { nil } if record.respond_to?(:run_callbacks, true)
+          record.instance_variable_set(:@_saving_via_parent, false)
+        end
+      end
+    end
+
+    # Delegate save from an embedded record to its parent.
+    # This allows `thing.save` and `thing.update(attrs)` to work
+    # by persisting through the parent record.
+    def save_via_parent(validate: true)
+      parent = instance_variable_get(:@_embedded_parent)
+      unless parent
+        raise ActiveItem::EmbeddedModelError,
+              "Cannot save #{self.class.name} — no parent record. " \
+              "Build embedded records through the parent's collection (e.g., parent.things.build)."
+      end
+
+      return false if validate && respond_to?(:valid?) && !valid?
+
+      parent.save(validate: validate)
+    end
+
+    # Delegate destroy from an embedded record to its parent.
+    # Removes itself from the parent's collection and saves the parent.
+    def destroy_via_parent
+      parent = instance_variable_get(:@_embedded_parent)
+      unless parent
+        raise ActiveItem::EmbeddedModelError,
+              "Cannot destroy #{self.class.name} — no parent record."
+      end
+
+      # Find which collection this record belongs to and remove it
+      self.class.superclass # ensure class is loaded
+      parent.class._embedded_associations.each do |assoc_name, config|
+        target_class = parent.send(:safe_constantize_model, config[:class_name])
+        next unless is_a?(target_class)
+
+        collection = parent.send(assoc_name)
+        collection.records.delete(self)
+        break
+      end
+
+      parent.save
+    end
+
+    # Snapshot the serialized state of an embedded collection for dirty comparison.
+    def serialize_embedded_snapshot(collection)
+      collection.map(&:to_embedded_hash)
+    end
+
+    # Check if any embedded collection has changed since load.
+    def embedded_associations_changed?
+      self.class._embedded_associations.any? do |assoc_name, _config|
+        current = send(assoc_name)
+        snapshot = instance_variable_get(:"@_embedded_#{assoc_name}_snapshot") || []
+        serialize_embedded_snapshot(current) != snapshot
+      end
+    end
+
+    # Update snapshots after a successful write so subsequent saves
+    # don't re-persist unchanged embedded data.
+    def snapshot_embedded_associations
+      self.class._embedded_associations.each_key do |assoc_name|
+        collection = send(assoc_name)
+        instance_variable_set(:"@_embedded_#{assoc_name}_snapshot", serialize_embedded_snapshot(collection))
+      end
+    end
+
+    # Detect the DynamoDB 400KB item size limit error and re-raise
+    # as a friendlier ActiveItem::ItemTooLargeError.
+    def raise_if_item_too_large(error)
+      return unless error.message.include?('Item size') || error.message.include?('item size') ||
+                    error.message.include?('400') || error.message.include?('exceeds')
+
+      raise ActiveItem::ItemTooLargeError.new(
+        model_name: self.class.name,
+        table: table_name,
+        original_error: error
+      )
     end
 
     def perform_create
+      run_embedded_callbacks(:create)
+      run_embedded_callbacks(:save)
+
       item = build_dynamodb_item
       item['createdAt'] = @created_at
       item['updatedAt'] = Time.now.utc.iso8601
@@ -568,10 +719,14 @@ module ActiveItem
         expression_attribute_names: { '#pk' => self.class.primary_key.to_s }
       )
 
+      snapshot_embedded_associations
       dynamo_logger.info("#{self.class.name} created (#{self.class.primary_key}: #{id})")
     rescue Aws::DynamoDB::Errors::ConditionalCheckFailedException
       errors.add(:id, 'already exists')
       false
+    rescue Aws::DynamoDB::Errors::ValidationException => e
+      raise_if_item_too_large(e)
+      raise
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                               operation: 'PutItem', original_error: e)
@@ -588,6 +743,15 @@ module ActiveItem
         item[dynamo_key] = value
       end
 
+      # Serialize embedded collections
+      self.class._embedded_associations.each_key do |assoc_name|
+        collection = send(assoc_name)
+        next if collection.nil? || collection.empty?
+
+        dynamo_key = self.class.to_dynamo_key(assoc_name.to_s)
+        item[dynamo_key] = collection.map(&:to_embedded_hash)
+      end
+
       item
     end
 
@@ -599,19 +763,32 @@ module ActiveItem
         attrs -= composed_attrs
       end
 
+      # Embedded associations are serialized separately in build_dynamodb_item
+      if self.class._embedded_associations.any?
+        embedded_names = self.class._embedded_associations.keys.map(&:to_s)
+        attrs -= embedded_names
+      end
+
       attrs
     end
 
     def perform_update
-      return if changes.empty?
+      embedded_changed = embedded_associations_changed?
+      return if changes.empty? && !embedded_changed
+
+      run_embedded_callbacks(:update) if embedded_changed
+      run_embedded_callbacks(:save) if embedded_changed
 
       update_parts = []
       remove_parts = []
       attr_values = {}
       attr_names = {}
+      idx = 0
 
-      changes.each_with_index do |(field, (_old_val, new_val)), idx|
+      changes.each do |field, (_old_val, new_val)|
         next if field == 'updated_at'
+        # Skip embedded association fields — handled separately below
+        next if self.class._embedded_associations.key?(field.to_sym)
 
         dynamo_key = self.class.to_dynamo_key(field)
         if new_val.nil?
@@ -622,6 +799,26 @@ module ActiveItem
           attr_names["#field#{idx}"] = dynamo_key
           attr_values[":val#{idx}"] = new_val
         end
+        idx += 1
+      end
+
+      # Serialize changed embedded associations into the update expression
+      self.class._embedded_associations.each_key do |assoc_name|
+        collection = send(assoc_name)
+        snapshot = instance_variable_get(:"@_embedded_#{assoc_name}_snapshot") || []
+        current_serialized = serialize_embedded_snapshot(collection)
+        next if current_serialized == snapshot
+
+        dynamo_key = self.class.to_dynamo_key(assoc_name.to_s)
+        if collection.empty?
+          remove_parts << "#field#{idx}"
+          attr_names["#field#{idx}"] = dynamo_key
+        else
+          update_parts << "#field#{idx} = :val#{idx}"
+          attr_names["#field#{idx}"] = dynamo_key
+          attr_values[":val#{idx}"] = current_serialized
+        end
+        idx += 1
       end
 
       update_parts << '#updatedAt = :updatedAt'
@@ -640,6 +837,10 @@ module ActiveItem
       params[:expression_attribute_names] = attr_names if attr_names.any?
 
       dynamodb.update_item(params)
+      snapshot_embedded_associations
+    rescue Aws::DynamoDB::Errors::ValidationException => e
+      raise_if_item_too_large(e)
+      raise
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                               operation: 'UpdateItem', original_error: e)

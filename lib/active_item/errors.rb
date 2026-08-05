@@ -62,4 +62,24 @@ module ActiveItem
       super("Cannot delete record because dependent #{association_name} exist")
     end
   end
+
+  # Raised when attempting to perform table-level operations on an embedded
+  # model (one that has self.embedded = true and no DynamoDB table).
+  class EmbeddedModelError < StandardError; end
+
+  # Raised when a DynamoDB put/update fails because the item exceeds the
+  # 400KB size limit — typically due to large embedded collections.
+  class ItemTooLargeError < StandardError
+    attr_reader :model_name, :table
+
+    def initialize(model_name:, table:, original_error: nil)
+      @model_name = model_name
+      @table = table
+      msg = "Item exceeds DynamoDB's 400KB limit when saving #{model_name} to #{table}. " \
+            'The embedded collection(s) may have too many records. ' \
+            'Consider reducing the number of embedded items or moving them to a separate table.'
+      msg += " (Original: #{original_error.message})" if original_error
+      super(msg)
+    end
+  end
 end
