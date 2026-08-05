@@ -109,16 +109,16 @@ RSpec.describe 'Embedded Associations' do
       end
 
       it 'raises RecordInvalid when validation fails' do
-        expect {
+        expect do
           container.gadgets.create!(name: nil)
-        }.to raise_error(ActiveItem::RecordInvalid)
+        end.to raise_error(ActiveItem::RecordInvalid)
       end
 
       it 'does not persist when validation fails' do
         container.save!
-        expect {
+        expect do
           container.gadgets.create!(name: nil)
-        }.to raise_error(ActiveItem::RecordInvalid)
+        end.to raise_error(ActiveItem::RecordInvalid)
 
         loaded = container_class.find(container.id)
         expect(loaded.gadgets.count).to eq(0)
@@ -134,9 +134,9 @@ RSpec.describe 'Embedded Associations' do
       end
 
       it 'raises RecordNotFound for unknown id' do
-        expect {
+        expect do
           container.gadgets.find('nonexistent')
-        }.to raise_error(ActiveItem::RecordNotFound)
+        end.to raise_error(ActiveItem::RecordNotFound)
       end
     end
 
@@ -233,8 +233,7 @@ RSpec.describe 'Embedded Associations' do
       end
 
       it 'supports #each' do
-        names = []
-        container.gadgets.each { |g| names << g.name }
+        names = container.gadgets.map(&:name)
         expect(names).to eq(%w[a b c])
       end
 

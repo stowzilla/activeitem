@@ -349,9 +349,7 @@ module ActiveItem
     end
 
     def save(validate: true)
-      if self.class.embedded? && !@_saving_via_parent
-        return save_via_parent(validate: validate)
-      end
+      return save_via_parent(validate: validate) if self.class.embedded? && !@_saving_via_parent
 
       return false if validate && !run_validations
 
@@ -452,9 +450,7 @@ module ActiveItem
     end
 
     def destroy
-      if self.class.embedded? && !@_destroying_via_parent
-        return destroy_via_parent
-      end
+      return destroy_via_parent if self.class.embedded? && !@_destroying_via_parent
 
       # If inside a transaction block, enroll this destroy in the transaction
       return enroll_destroy_in_transaction if Transaction.active?
@@ -605,7 +601,7 @@ module ActiveItem
     def validate_embedded_associations
       all_valid = true
 
-      self.class._embedded_associations.each do |assoc_name, _config|
+      self.class._embedded_associations.each_key do |assoc_name|
         collection = send(assoc_name)
         collection.each_with_index do |record, idx|
           next if record.valid?
@@ -622,11 +618,11 @@ module ActiveItem
 
     # Run callbacks on embedded records during parent save.
     def run_embedded_callbacks(callback_type)
-      self.class._embedded_associations.each do |assoc_name, _config|
+      self.class._embedded_associations.each_key do |assoc_name|
         collection = send(assoc_name)
         collection.each do |record|
           record.instance_variable_set(:@_saving_via_parent, true)
-          record.run_callbacks(callback_type) {} if record.respond_to?(:run_callbacks, true)
+          record.run_callbacks(callback_type) { nil } if record.respond_to?(:run_callbacks, true)
           record.instance_variable_set(:@_saving_via_parent, false)
         end
       end
@@ -643,9 +639,7 @@ module ActiveItem
               "Build embedded records through the parent's collection (e.g., parent.things.build)."
       end
 
-      if validate && respond_to?(:valid?) && !valid?
-        return false
-      end
+      return false if validate && respond_to?(:valid?) && !valid?
 
       parent.save(validate: validate)
     end
@@ -663,7 +657,7 @@ module ActiveItem
       self.class.superclass # ensure class is loaded
       parent.class._embedded_associations.each do |assoc_name, config|
         target_class = parent.send(:safe_constantize_model, config[:class_name])
-        next unless self.is_a?(target_class)
+        next unless is_a?(target_class)
 
         collection = parent.send(assoc_name)
         collection.records.delete(self)
@@ -690,7 +684,7 @@ module ActiveItem
     # Update snapshots after a successful write so subsequent saves
     # don't re-persist unchanged embedded data.
     def snapshot_embedded_associations
-      self.class._embedded_associations.each do |assoc_name, _config|
+      self.class._embedded_associations.each_key do |assoc_name|
         collection = send(assoc_name)
         instance_variable_set(:"@_embedded_#{assoc_name}_snapshot", serialize_embedded_snapshot(collection))
       end
@@ -750,7 +744,7 @@ module ActiveItem
       end
 
       # Serialize embedded collections
-      self.class._embedded_associations.each do |assoc_name, config|
+      self.class._embedded_associations.each_key do |assoc_name|
         collection = send(assoc_name)
         next if collection.nil? || collection.empty?
 
@@ -809,7 +803,7 @@ module ActiveItem
       end
 
       # Serialize changed embedded associations into the update expression
-      self.class._embedded_associations.each do |assoc_name, _config|
+      self.class._embedded_associations.each_key do |assoc_name|
         collection = send(assoc_name)
         snapshot = instance_variable_get(:"@_embedded_#{assoc_name}_snapshot") || []
         current_serialized = serialize_embedded_snapshot(collection)

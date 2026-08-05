@@ -629,8 +629,6 @@ module ActiveItem
       end
     end
 
-    private
-
     def raise_embedded_error!(method_name)
       raise ActiveItem::EmbeddedModelError,
             "Cannot call .#{method_name} on #{name} because it is an embedded model " \

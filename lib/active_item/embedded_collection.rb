@@ -18,8 +18,8 @@ module ActiveItem
       @records = records.dup
     end
 
-    def each(&block)
-      @records.each(&block)
+    def each(&)
+      @records.each(&)
     end
 
     def length
@@ -91,7 +91,7 @@ module ActiveItem
       unless record.valid?
         @records.delete(record)
         mark_owner_dirty!
-        raise ActiveItem::RecordInvalid.new(record)
+        raise ActiveItem::RecordInvalid, record
       end
 
       @owner.save!

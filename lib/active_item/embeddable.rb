@@ -38,7 +38,7 @@ module ActiveItem
       item = { 'id' => id || SecureRandom.uuid }
 
       self.class.attribute_names.each do |attr_name|
-        next if attr_name == 'id' || attr_name == 'dbrecord'
+        next if %w[id dbrecord].include?(attr_name)
 
         value = instance_variable_get("@#{attr_name}")
         next if value.nil?
@@ -61,7 +61,7 @@ module ActiveItem
       record.instance_variable_set(:@updated_at, hash['updatedAt'])
 
       klass.attribute_names.each do |attr_name|
-        next if attr_name == 'id' || attr_name == 'dbrecord'
+        next if %w[id dbrecord].include?(attr_name)
 
         value = nil
         found = false
