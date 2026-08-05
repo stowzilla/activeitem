@@ -84,11 +84,17 @@ module ActiveItem
       record
     end
 
-    # Build and validate — raises if invalid.
+    # Build, validate, and persist by saving the parent.
+    # Matches ActiveRecord semantics where create! actually persists.
     def create!(attributes = {})
       record = build(attributes)
-      raise ActiveItem::RecordInvalid.new(record) unless record.valid?
+      unless record.valid?
+        @records.delete(record)
+        mark_owner_dirty!
+        raise ActiveItem::RecordInvalid.new(record)
+      end
 
+      @owner.save!
       record
     end
 

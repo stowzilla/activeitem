@@ -96,17 +96,32 @@ RSpec.describe 'Embedded Associations' do
     end
 
     describe '#create!' do
-      it 'builds and validates the record' do
+      it 'builds, validates, and persists by saving the parent' do
         gadget = container.gadgets.create!(name: 'hammer')
 
         expect(gadget.name).to eq('hammer')
         expect(container.gadgets.count).to eq(1)
+
+        # Verify it actually persisted
+        loaded = container_class.find(container.id)
+        expect(loaded.gadgets.count).to eq(1)
+        expect(loaded.gadgets.first.name).to eq('hammer')
       end
 
       it 'raises RecordInvalid when validation fails' do
         expect {
           container.gadgets.create!(name: nil)
         }.to raise_error(ActiveItem::RecordInvalid)
+      end
+
+      it 'does not persist when validation fails' do
+        container.save!
+        expect {
+          container.gadgets.create!(name: nil)
+        }.to raise_error(ActiveItem::RecordInvalid)
+
+        loaded = container_class.find(container.id)
+        expect(loaded.gadgets.count).to eq(0)
       end
     end
 
