@@ -40,3 +40,34 @@ RSpec.describe 'ActiveItem Relation#load' do
     expect(results.first.status).to eq('active')
   end
 end
+
+RSpec.describe 'ActiveItem Relation#loaded?' do
+  let(:dynamo_client) { @dynamo_client }
+
+  let(:model_class) do
+    Class.new(ActiveItem::Base) do
+      self.table_name = "#{TABLE_PREFIX}-items"
+      attr_accessor :name, :status
+
+      def self.name
+        'Item'
+      end
+    end.tap { |klass| klass.dynamodb = dynamo_client }
+  end
+
+  it 'returns false for a fresh unloaded relation' do
+    relation = ActiveItem::Relation.new(model_class)
+    expect(relation.loaded?).to be false
+  end
+
+  it 'returns true for a relation with preloaded records' do
+    record = model_class.new(name: 'Preloaded')
+    relation = ActiveItem::Relation.new(nil, preloaded_records: [record], class_name: 'Item')
+    expect(relation.loaded?).to be true
+  end
+
+  it 'returns true for a relation with empty preloaded records' do
+    relation = ActiveItem::Relation.new(nil, preloaded_records: [], class_name: 'Item')
+    expect(relation.loaded?).to be true
+  end
+end
