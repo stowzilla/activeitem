@@ -14,6 +14,7 @@ module ActiveItem
 
     included do
       class_attribute :_associations, default: {}
+      class_attribute :_embedded_associations, default: {}
     end
 
     def check_dependent_associations
@@ -58,6 +59,11 @@ module ActiveItem
           return
         end
 
+        if options[:embedded]
+          define_has_many_embedded(association_name, options)
+          return
+        end
+
         class_name = options[:class_name] || name.to_s.singularize.camelize
         foreign_key = options[:foreign_key] || "#{self.name.underscore}_id"
         index_name = options[:index]
@@ -96,6 +102,59 @@ module ActiveItem
 
         define_method(:"#{association_name}_count") do
           _preloaded_counts.key?(association_name) ? _preloaded_counts[association_name] : send(association_name).length
+        end
+      end
+
+      def define_has_many_embedded(association_name, options)
+        class_name = options[:class_name] || association_name.to_s.singularize.camelize
+
+        self._associations = _associations.merge(
+          association_name => {
+            type: :has_many_embedded, class_name: class_name
+          }
+        )
+
+        # Register the embedded association so serialization knows about it
+        self._embedded_associations = _embedded_associations.merge(
+          association_name => { class_name: class_name }
+        )
+
+        # Define dirty-tracking attribute for the embedded collection
+        define_attribute_methods association_name.to_s
+
+        # Accessor that returns an EmbeddedCollection
+        define_method(association_name) do
+          ivar = :"@_embedded_#{association_name}"
+          return instance_variable_get(ivar) if instance_variable_defined?(ivar)
+
+          target_class = safe_constantize_model(class_name)
+          collection = EmbeddedCollection.new(
+            owner: self,
+            association_name: association_name,
+            target_class: target_class,
+            records: []
+          )
+          instance_variable_set(ivar, collection)
+          collection
+        end
+
+        # Setter for replacing the embedded collection
+        define_method("#{association_name}=") do |records|
+          ivar = :"@_embedded_#{association_name}"
+          target_class = safe_constantize_model(class_name)
+          collection = EmbeddedCollection.new(
+            owner: self,
+            association_name: association_name,
+            target_class: target_class,
+            records: Array(records)
+          )
+          send("#{association_name}_will_change!")
+          instance_variable_set(ivar, collection)
+          collection
+        end
+
+        define_method(:"#{association_name}_count") do
+          send(association_name).count
         end
       end
 

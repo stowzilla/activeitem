@@ -7,6 +7,8 @@ module ActiveItem
   # counting, existence checks, and automatic GSI index detection.
   module QueryHelpers
     def find(id)
+      raise_embedded_error!(:find) if respond_to?(:embedded?) && embedded?
+
       record = get({ primary_key.to_s => id })
       raise ActiveItem::RecordNotFound, "Couldn't find #{name} with '#{primary_key}'=#{id}" unless record
 
@@ -170,6 +172,8 @@ module ActiveItem
     #   # Equivalent to: Customer.batch_find(['cust-1', 'cust-2', 'cust-3'])
     #
     def where(**conditions)
+      raise_embedded_error!(:where) if respond_to?(:embedded?) && embedded?
+
       # If no conditions, return a Relation that supports .not() chaining
       return Relation.new(self) if conditions.empty?
 
@@ -201,6 +205,8 @@ module ActiveItem
 
     # Returns a Relation for all records (enables chaining from .all)
     def all(limit: nil)
+      raise_embedded_error!(:all) if respond_to?(:embedded?) && embedded?
+
       if limit
         Relation.new(self, limit_value: limit)
       else
@@ -255,6 +261,8 @@ module ActiveItem
     #   Customer.count { |c| c.email.include?('@gmail.com') }  # => 15
     #
     def count(**conditions, &)
+      raise_embedded_error!(:count) if respond_to?(:embedded?) && embedded?
+
       if block_given?
         # Block provided - load all records and count with Ruby
         all.count(&)
@@ -288,6 +296,8 @@ module ActiveItem
     # @param id_or_conditions [String, Hash] Primary key value or attribute conditions
     # @return [Boolean] true if a record exists matching the conditions
     def exists?(id_or_conditions = nil, **conditions)
+      raise_embedded_error!(:exists?) if respond_to?(:embedded?) && embedded?
+
       # Handle single ID parameter: Customer.exists?('cust-123')
       return !!get({ primary_key.to_s => id_or_conditions }) if id_or_conditions.is_a?(String) && conditions.empty?
 
@@ -617,6 +627,14 @@ module ActiveItem
           }
         }
       end
+    end
+
+    private
+
+    def raise_embedded_error!(method_name)
+      raise ActiveItem::EmbeddedModelError,
+            "Cannot call .#{method_name} on #{name} because it is an embedded model " \
+            '(no DynamoDB table). Access embedded records through their parent association.'
     end
   end
 end
