@@ -752,6 +752,8 @@ module ActiveItem
         item[dynamo_key] = collection.map(&:to_embedded_hash)
       end
 
+      validate_gsi_key_types!(item)
+
       item
     end
 
@@ -775,6 +777,9 @@ module ActiveItem
     def perform_update
       embedded_changed = embedded_associations_changed?
       return if changes.empty? && !embedded_changed
+
+      # Validate GSI key types for changed attributes before building the update
+      validate_gsi_key_types_for_changes!
 
       run_embedded_callbacks(:update) if embedded_changed
       run_embedded_callbacks(:save) if embedded_changed
@@ -853,6 +858,108 @@ module ActiveItem
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise ActiveItem::AccessDeniedError.new(model_name: self.class.name, table: table_name,
                                               operation: 'DeleteItem', original_error: e)
+    end
+
+    # Validates that all GSI key attributes have valid types for DynamoDB.
+    # GSI keys can only be String, Number (Integer/Float/BigDecimal), or Binary (StringIO).
+    #
+    # @param item [Hash] The DynamoDB item being built
+    # @raise [InvalidGsiKeyTypeError] if any GSI key has an invalid type
+    def validate_gsi_key_types!(item)
+      return unless self.class.respond_to?(:indexes)
+
+      indexes = self.class.indexes
+      return if indexes.nil? || indexes.empty?
+
+      indexes.each do |index_name, config|
+        # Check partition key
+        partition_key = config[:partition_key]&.to_s
+        if partition_key && item.key?(partition_key)
+          value = item[partition_key]
+          validate_gsi_key_value!(partition_key, value, index_name) unless value.nil?
+        end
+
+        # Check sort key if present
+        sort_key = config[:sort_key]&.to_s
+        if sort_key && item.key?(sort_key)
+          value = item[sort_key]
+          validate_gsi_key_value!(sort_key, value, index_name) unless value.nil?
+        end
+      end
+    end
+
+    # Validates GSI key types for changed attributes during updates.
+    # Only validates the attributes that are being changed, not the entire item.
+    #
+    # @raise [InvalidGsiKeyTypeError] if any changed GSI key has an invalid type
+    def validate_gsi_key_types_for_changes!
+      return unless self.class.respond_to?(:indexes)
+
+      indexes = self.class.indexes
+      return if indexes.nil? || indexes.empty?
+
+      # Build a hash of changed dynamo keys and their new values
+      changed_dynamo_keys = {}
+      changes.each do |field, (_old_val, new_val)|
+        next if new_val.nil? # nil values are being removed, no type validation needed
+
+        dynamo_key = self.class.to_dynamo_key(field)
+        changed_dynamo_keys[dynamo_key] = new_val
+      end
+
+      return if changed_dynamo_keys.empty?
+
+      indexes.each do |index_name, config|
+        # Check partition key if it's being changed
+        partition_key = config[:partition_key]&.to_s
+        if partition_key && changed_dynamo_keys.key?(partition_key)
+          validate_gsi_key_value!(partition_key, changed_dynamo_keys[partition_key], index_name)
+        end
+
+        # Check sort key if it's being changed
+        sort_key = config[:sort_key]&.to_s
+        if sort_key && changed_dynamo_keys.key?(sort_key)
+          validate_gsi_key_value!(sort_key, changed_dynamo_keys[sort_key], index_name)
+        end
+      end
+    end
+
+    # Validates that a single GSI key value has a valid type.
+    # DynamoDB GSI keys support: String, Number (Integer/Float/BigDecimal), Binary (StringIO).
+    # Empty strings are not allowed for GSI keys.
+    #
+    # @param attribute [String] The attribute name
+    # @param value [Object] The attribute value
+    # @param index_name [String] The GSI name (for error messages)
+    # @raise [InvalidGsiKeyTypeError] if the value has an invalid type
+    def validate_gsi_key_value!(attribute, value, index_name)
+      return if valid_gsi_key_type?(value)
+
+      raise InvalidGsiKeyTypeError.new(
+        model_name: self.class.name,
+        attribute: attribute,
+        index_name: index_name,
+        value: value
+      )
+    end
+
+    # Checks if a value is a valid type for a DynamoDB GSI key.
+    # Valid types: String (non-empty), Numeric (Integer, Float, BigDecimal), Binary (StringIO).
+    # Empty strings are explicitly rejected as DynamoDB does not allow them for key attributes.
+    #
+    # @param value [Object] The value to check
+    # @return [Boolean] true if the value is a valid GSI key type
+    def valid_gsi_key_type?(value)
+      case value
+      when String
+        !value.empty? # Empty strings are not allowed for GSI keys
+      when Integer, Float, BigDecimal
+        true
+      when StringIO
+        true
+      else
+        false
+      end
     end
   end
 end

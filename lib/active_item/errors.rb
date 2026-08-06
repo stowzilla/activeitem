@@ -82,4 +82,20 @@ module ActiveItem
       super(msg)
     end
   end
+
+  # Raised when a GSI key attribute has an invalid type.
+  # DynamoDB GSI keys must be String, Number (Integer/Float/BigDecimal), or Binary (StringIO).
+  class InvalidGsiKeyTypeError < StandardError
+    attr_reader :model_name, :attribute, :index_name, :value, :value_type
+
+    def initialize(model_name:, attribute:, index_name:, value:)
+      @model_name = model_name
+      @attribute = attribute
+      @index_name = index_name
+      @value = value
+      @value_type = value.class.name
+      super("#{model_name}##{attribute} has invalid type #{@value_type} for GSI '#{index_name}'. " \
+            'GSI keys must be String, Numeric (Integer/Float/BigDecimal), or Binary (StringIO).')
+    end
+  end
 end

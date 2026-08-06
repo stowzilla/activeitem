@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.21
+
+### Added
+
+- **GSI key type validation** — ActiveItem now validates that Global Secondary Index (GSI) key attributes have valid DynamoDB types at write time. Valid types are: String (non-empty), Numeric (Integer, Float, BigDecimal), and Binary (StringIO). Invalid types (Array, Hash, Boolean, Symbol, Date, Time, empty strings) now raise `ActiveItem::InvalidGsiKeyTypeError` immediately, with a helpful error message identifying the attribute and index. This catches common bugs like passing `Date.today` instead of `date.to_s`, or accidentally setting an array where a string was expected.
+
+  ```ruby
+  # Raises InvalidGsiKeyTypeError: Item#status has invalid type Array for GSI 'StatusIndex'
+  item = Item.new(status: ['a', 'b', 'c'])
+  item.save
+
+  # Raises InvalidGsiKeyTypeError for empty strings
+  item = Item.new(status: '')
+  item.save
+  ```
+
 ## 0.0.19
 
 ### Added
