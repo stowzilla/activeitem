@@ -100,15 +100,33 @@ module ActiveItem
 
           define_attribute_methods attr_name
 
-          define_method(attr_name) do
-            instance_variable_get("@#{attr_name}")
-          end
+          # Define the generated reader/writer in a dedicated module that is
+          # included into the model, rather than directly on the class. This
+          # mirrors Rails' GeneratedAttributeMethods: a hand-written
+          # `def foo=` on the model sits *above* the generated writer in the
+          # ancestor chain, so a custom writer can call `super` (or
+          # `write_attribute`) to get dirty tracking for free.
+          generated_attribute_methods.module_eval do
+            define_method(attr_name) do
+              read_attribute(attr_name)
+            end
 
-          define_method("#{attr_name}=") do |value|
-            old_value = instance_variable_get("@#{attr_name}")
-            send("#{attr_name}_will_change!") if (old_value != value) && !changed_attributes.key?(attr_name)
-            instance_variable_set("@#{attr_name}", value)
+            define_method("#{attr_name}=") do |value|
+              write_attribute(attr_name, value)
+            end
           end
+        end
+      end
+
+      # Per-class module that holds the generated attribute reader/writer
+      # methods. Included once, ahead of ActiveModel in the ancestor chain but
+      # behind the model class itself, so user-defined setters can `super`.
+      def generated_attribute_methods
+        @generated_attribute_methods ||= begin
+          mod = Module.new
+          include mod
+
+          mod
         end
       end
 
@@ -490,6 +508,50 @@ module ActiveItem
       end
     end
 
+    # Read the current value of an attribute by name.
+    #
+    # This is the Rails-like primitive that generated readers delegate to.
+    # Custom readers can call it (or `super`) instead of poking at the ivar
+    # directly.
+    #
+    #   def display_name
+    #     read_attribute(:name).to_s.strip
+    #   end
+    #
+    # @param attr_name [String, Symbol] the attribute name
+    # @return the attribute's current value
+    def read_attribute(attr_name)
+      instance_variable_get("@#{attr_name}")
+    end
+
+    # Write an attribute value, recording it for dirty tracking so `save`
+    # actually persists it.
+    #
+    # This is the single place dirty tracking happens for attributes, mirroring
+    # Rails' `write_attribute`. Generated writers delegate here, which means a
+    # custom writer gets dirty tracking for free by going through either
+    # `super` or `write_attribute` directly:
+    #
+    #   # coerce/normalize on assignment, Rails-style
+    #   def tags=(value)
+    #     super(Array(value))            # -> generated writer -> write_attribute
+    #   end
+    #
+    #   # or be explicit
+    #   def payload=(value)
+    #     write_attribute(:payload, value.is_a?(String) ? value : JSON.generate(value))
+    #   end
+    #
+    # @param attr_name [String, Symbol] the attribute name
+    # @param value the value to assign
+    # @return the assigned value
+    def write_attribute(attr_name, value)
+      attr_name = attr_name.to_s
+      old_value = instance_variable_get("@#{attr_name}")
+      mark_attribute_will_change(attr_name, old_value, value)
+      instance_variable_set("@#{attr_name}", value)
+    end
+
     def attribute_changed?(attr_name)
       super(attr_name.to_s)
     end
@@ -510,6 +572,18 @@ module ActiveItem
     end
 
     private
+
+    # Record a pending change for dirty tracking. Guarded with `respond_to?`
+    # so it degrades gracefully for attributes that weren't declared via
+    # `attr_accessor` (and under test harnesses that stub the ORM), and skips
+    # re-recording an original value that's already been captured.
+    def mark_attribute_will_change(attr_name, old_value, new_value)
+      return if old_value == new_value
+      return if changed_attributes.key?(attr_name)
+      return unless respond_to?("#{attr_name}_will_change!", true)
+
+      send("#{attr_name}_will_change!")
+    end
 
     # Enroll this record's save operation in the current transaction.
     # Called when save is invoked inside a transaction block.
