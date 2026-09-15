@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.0.23
+
+### Added
+
+- **`read_attribute` / `write_attribute`** — ActiveItem now exposes the same attribute primitives as ActiveRecord. `write_attribute(:name, value)` records the change for dirty tracking; `read_attribute(:name)` returns the current value. Custom readers/writers can route through these instead of touching the ivar directly.
+
+### Fixed
+
+- **Custom attribute writers now persist on update, Rails-style** — Overriding a generated writer to coerce or normalize a value no longer silently drops the change. Generated readers/writers are now defined in an included module (like Rails' `GeneratedAttributeMethods`), so a hand-written `def foo=` can call `super` and get dirty tracking for free. Previously, a custom writer that assigned `@foo` directly left the attribute out of the changeset — `save` returned `true` with no error, but the update wrote nothing. Both `super` and `write_attribute` are now supported.
+
+  ```ruby
+  class Article < ActiveItem::Base
+    attr_accessor :tags, :payload
+
+    # Coerce to an Array, Rails-style: override and call super.
+    def tags=(value)
+      super(Array(value))
+    end
+
+    # Or be explicit with write_attribute.
+    def payload=(value)
+      write_attribute(:payload, value.is_a?(String) ? value : JSON.generate(value))
+    end
+  end
+  ```
+
 ## 0.0.22
 
 ### Changed

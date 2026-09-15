@@ -114,6 +114,38 @@ class Customer < ActiveItem::Base
 end
 ```
 
+### Custom Attribute Writers
+
+Like ActiveRecord, you can override a generated writer to coerce or normalize a
+value on assignment. Just route the assignment back through the generated
+writer — call `super`, or use `write_attribute`. Both record the change for
+dirty tracking, so `save` (and `update`) persist it. Assigning `@ivar` directly
+bypasses dirty tracking and the change is silently dropped on update.
+
+```ruby
+class Article < ActiveItem::Base
+  attr_accessor :tags, :payload
+
+  # Coerce to an Array, Rails-style: override and call super.
+  def tags=(value)
+    super(Array(value))
+  end
+
+  # Or be explicit with write_attribute.
+  def payload=(value)
+    write_attribute(:payload, value.is_a?(String) ? value : JSON.generate(value))
+  end
+end
+```
+
+`read_attribute(:name)` is available too, for custom readers:
+
+```ruby
+def display_name
+  read_attribute(:name).to_s.strip
+end
+```
+
 ## License
 
 MIT
