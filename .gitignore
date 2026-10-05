@@ -3,3 +3,7 @@
 /tmp/
 *.gem
 gem-private_key.pem
+
+# Gemfile.lock is intentionally not committed for a library/gem.
+# Consumers resolve their own versions against the gemspec constraints.
+/Gemfile.lock
