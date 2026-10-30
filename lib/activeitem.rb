@@ -5,6 +5,7 @@ require_relative 'active_item/configuration'
 require_relative 'active_item/logging'
 require_relative 'active_item/errors'
 require_relative 'active_item/database_helpers'
+require_relative 'active_item/begins_with'
 require_relative 'active_item/query_helpers'
 require_relative 'active_item/relation'
 require_relative 'active_item/embedded_collection'
@@ -31,6 +32,11 @@ module ActiveItem
 
     def logger
       configuration.logger
+    end
+
+    # Prefix match for `where`; see ActiveItem::BeginsWith.
+    def begins_with(prefix)
+      BeginsWith.new(prefix)
     end
   end
 end

@@ -660,16 +660,10 @@ module ActiveItem
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
           end
 
-          if sort_value.is_a?(Range)
-            range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
-            params[:key_condition_expression] += " AND #{range_condition[:expression]}"
-            params[:expression_attribute_names].merge!(range_condition[:names])
-            params[:expression_attribute_values].merge!(range_condition[:values])
-          else
-            params[:key_condition_expression] += ' AND #sk = :sk_val'
-            params[:expression_attribute_names]['#sk'] = sort_key
-            params[:expression_attribute_values][':sk_val'] = sort_value
-          end
+          key_condition = resolved_model.send(:build_sort_key_condition, sort_key, sort_value)
+          params[:key_condition_expression] += " AND #{key_condition[:expression]}"
+          params[:expression_attribute_names].merge!(key_condition[:names])
+          params[:expression_attribute_values].merge!(key_condition[:values])
         end
       end
 
@@ -906,16 +900,10 @@ module ActiveItem
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
           end
 
-          if sort_value.is_a?(Range)
-            range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
-            params[:key_condition_expression] += " AND #{range_condition[:expression]}"
-            params[:expression_attribute_names].merge!(range_condition[:names])
-            params[:expression_attribute_values].merge!(range_condition[:values])
-          else
-            params[:key_condition_expression] += ' AND #sk = :sk_val'
-            params[:expression_attribute_names]['#sk'] = sort_key
-            params[:expression_attribute_values][':sk_val'] = sort_value
-          end
+          key_condition = resolved_model.send(:build_sort_key_condition, sort_key, sort_value)
+          params[:key_condition_expression] += " AND #{key_condition[:expression]}"
+          params[:expression_attribute_names].merge!(key_condition[:names])
+          params[:expression_attribute_values].merge!(key_condition[:values])
         end
       end
 
@@ -1020,16 +1008,10 @@ module ActiveItem
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
           end
 
-          if sort_value.is_a?(Range)
-            range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
-            params[:key_condition_expression] += " AND #{range_condition[:expression]}"
-            params[:expression_attribute_names].merge!(range_condition[:names])
-            params[:expression_attribute_values].merge!(range_condition[:values])
-          else
-            params[:key_condition_expression] += ' AND #sk = :sk_val'
-            params[:expression_attribute_names]['#sk'] = sort_key
-            params[:expression_attribute_values][':sk_val'] = sort_value
-          end
+          key_condition = resolved_model.send(:build_sort_key_condition, sort_key, sort_value)
+          params[:key_condition_expression] += " AND #{key_condition[:expression]}"
+          params[:expression_attribute_names].merge!(key_condition[:names])
+          params[:expression_attribute_values].merge!(key_condition[:values])
         end
       end
 
@@ -1186,16 +1168,10 @@ module ActiveItem
             resolved_model.to_dynamo_key(k.to_s) == sort_key || k.to_s == sort_key
           end
 
-          if sort_value.is_a?(Range)
-            range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
-            params[:key_condition_expression] += " AND #{range_condition[:expression]}"
-            params[:expression_attribute_names].merge!(range_condition[:names])
-            params[:expression_attribute_values].merge!(range_condition[:values])
-          else
-            params[:key_condition_expression] += ' AND #sk = :sk_val'
-            params[:expression_attribute_names]['#sk'] = sort_key
-            params[:expression_attribute_values][':sk_val'] = sort_value
-          end
+          key_condition = resolved_model.send(:build_sort_key_condition, sort_key, sort_value)
+          params[:key_condition_expression] += " AND #{key_condition[:expression]}"
+          params[:expression_attribute_names].merge!(key_condition[:names])
+          params[:expression_attribute_values].merge!(key_condition[:values])
         end
       end
 
@@ -1416,16 +1392,10 @@ module ActiveItem
       return unless sort_condition
 
       _, sort_value = sort_condition
-      if sort_value.is_a?(Range)
-        range_condition = resolved_model.send(:build_sort_key_range_condition, sort_key, sort_value)
-        params[:key_condition_expression] += " AND #{range_condition[:expression]}"
-        params[:expression_attribute_names].merge!(range_condition[:names])
-        params[:expression_attribute_values].merge!(range_condition[:values])
-      else
-        params[:key_condition_expression] += ' AND #sk = :sk_val'
-        params[:expression_attribute_names]['#sk'] = sort_key
-        params[:expression_attribute_values][':sk_val'] = sort_value
-      end
+      key_condition = resolved_model.send(:build_sort_key_condition, sort_key, sort_value)
+      params[:key_condition_expression] += " AND #{key_condition[:expression]}"
+      params[:expression_attribute_names].merge!(key_condition[:names])
+      params[:expression_attribute_values].merge!(key_condition[:values])
     end
 
     def sort_fanout_results(items, sort_key)
@@ -1615,6 +1585,9 @@ module ActiveItem
         val.each_with_index { |v, i| values[":val#{idx}_#{i}"] = v }
         return ["NOT (#attr#{idx} IN (#{placeholders.join(', ')}))", { "#attr#{idx}" => dynamo_attr }, values]
       end
+
+      # NOT begins_with
+      return ["NOT begins_with(#attr#{idx}, :val#{idx})", { "#attr#{idx}" => dynamo_attr }, { ":val#{idx}" => val.prefix }] if val.is_a?(ActiveItem::BeginsWith)
 
       # Simple not equal
       ["#attr#{idx} <> :val#{idx}", { "#attr#{idx}" => dynamo_attr }, { ":val#{idx}" => val }]

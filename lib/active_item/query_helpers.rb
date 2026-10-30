@@ -411,6 +411,7 @@ module ActiveItem
     # - Range values (BETWEEN): { date: Date.today..Date.today + 7 }
     # - Beginless range (<=): { date: ..Date.today }
     # - Endless range (>=): { date: Date.today.. }
+    # - Prefix match: { name: ActiveItem.begins_with('ab') }
     # - Model objects: { parent_container: container } -> uses container.id
     #
     # Note: Attribute names are converted from Ruby snake_case to DynamoDB camelCase
@@ -451,6 +452,9 @@ module ActiveItem
 
       # Handle Range values (BETWEEN, >=, <=)
       return build_range_condition(dynamo_attr, val, idx) if val.is_a?(Range)
+
+      # Handle prefix match (begins_with)
+      return ["begins_with(#attr#{idx}, :val#{idx})", { "#attr#{idx}" => dynamo_attr }, { ":val#{idx}" => val.prefix }] if val.is_a?(ActiveItem::BeginsWith)
 
       # Handle array values (IN clause)
       return build_in_condition(dynamo_attr, val, idx) if val.is_a?(Array)
@@ -594,6 +598,24 @@ module ActiveItem
         # ActiveSupport::TimeWithZone or already a string
         value.respond_to?(:to_date) ? value.to_date.to_s : value.to_s
       end
+    end
+
+    # Build the sort key part of a GSI key condition: equality, a Range
+    # (BETWEEN, >=, <=), or ActiveItem.begins_with.
+    def build_sort_key_condition(sort_key, value, placeholder_prefix = 'sk')
+      return build_sort_key_range_condition(sort_key, value, placeholder_prefix) if value.is_a?(Range)
+
+      expression = if value.is_a?(ActiveItem::BeginsWith)
+                     value = value.prefix
+                     "begins_with(##{placeholder_prefix}, :#{placeholder_prefix}_val)"
+                   else
+                     "##{placeholder_prefix} = :#{placeholder_prefix}_val"
+                   end
+      {
+        expression: expression,
+        names: { "##{placeholder_prefix}" => sort_key },
+        values: { ":#{placeholder_prefix}_val" => value }
+      }
     end
 
     # Build sort key condition for Range values in GSI queries
