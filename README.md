@@ -75,6 +75,18 @@ User.count
 User.exists?('user-123')
 ```
 
+Sort-key conditions on an index go into the key condition, not a filter:
+
+```ruby
+Event.where(customer_id: id, created_at: 1.week.ago..)                 # >=, <=, BETWEEN via Range
+Username.where(search_prefix: 'ab', search_name: ActiveItem.begins_with('abe'))  # prefix
+```
+
+For prefix search (autocomplete), add a GSI whose partition key is the first few
+lowercased characters and whose sort key is the whole lowercased value, then
+`begins_with` on the sort key. `begins_with` on a non-key attribute works too, but
+it's a filter, so DynamoDB still reads every item in the query or scan.
+
 ### Associations
 
 ```ruby

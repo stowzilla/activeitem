@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.0.24
+
+### Added
+
+- **`ActiveItem.begins_with` for prefix queries** — Pass it as a `where` value. On an index's sort key it goes into the key condition (`begins_with(#sk, :sk_val)`), so DynamoDB reads only the matching items instead of scanning. On any other attribute it becomes a `begins_with` filter, and `where.not` gives `NOT begins_with(...)`. Works with `limit`, `order`, `count`, `explain`, and array (fan-out) partition keys.
+
+  ```ruby
+  # GSI PrefixIndex: partition = first 2 letters, sort = whole name (both lowercased)
+  Username.where(search_prefix: 'ab', search_name: ActiveItem.begins_with('abe')).limit(10)
+  ```
+
+### Changed
+
+- The equality / Range / prefix sort-key condition is now built in one place (`build_sort_key_condition`) instead of five copies in `Relation`.
+
 ## 0.0.23
 
 ### Added
