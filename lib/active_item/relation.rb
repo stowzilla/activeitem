@@ -192,7 +192,15 @@ module ActiveItem
     end
 
     # Get first record
+    #
+    # When the relation is already loaded (e.g. built from batch_find via
+    # where(id: [...]), which stores preloaded_records and leaves conditions
+    # empty), read directly from the loaded records. Routing through
+    # limit(1).to_a would spawn a fresh, condition-less relation that ignores
+    # the preload and scans the table, returning an arbitrary unrelated record.
     def first
+      return @records.first if @loaded
+
       limit(1).to_a.first
     end
 
