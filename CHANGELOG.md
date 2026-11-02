@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.25
+
+### Fixed
+
+- **`Relation#first` could return an unrelated record on a preloaded relation.** `where(id: [...])` takes the `batch_find` optimization and returns a Relation that is already loaded with the requested records but whose `conditions` hash is empty. `#first` routed through `limit(1)` → `spawn`, producing a fresh, condition-less relation that scanned the table and returned an arbitrary record — often one belonging to a different owner. `#each`, `#length`, `#to_a`, and `#last` were unaffected, so code that iterated to authorize and then read `relation.first.some_id` would silently pick up a stranger's value. `#first` now reads directly from the loaded records when the relation is already loaded.
+
 ## 0.0.24
 
 ### Added
