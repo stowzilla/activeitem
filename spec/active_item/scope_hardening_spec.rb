@@ -177,6 +177,19 @@ RSpec.describe 'Scope hardening' do
       expect(parent.children.where(label: 'a').to_a.map(&:id)).to eq(%w[c1])
     end
 
+    it 'falls back correctly on a custom primary key model' do
+      custom = Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-widgets-custom-pk"
+        self.primary_key = :widget_id
+        attr_accessor :name
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets-custom-pk", item: { 'widget_id' => 'k1', 'name' => 'b' })
+      dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-widgets-custom-pk", item: { 'widget_id' => 'k2', 'name' => 'z' })
+
+      expect(custom.where(name: 'a'..'c').find('k1').id).to eq('k1')
+      expect { custom.where(name: 'a'..'c').find('k2') }.to raise_error(ActiveItem::RecordNotFound)
+    end
+
     it 'scopes a batch-loaded relation to the requested ids' do
       expect { child_class.where(id: %w[c1]).find('c2') }.to raise_error(ActiveItem::RecordNotFound)
     end
@@ -240,6 +253,42 @@ RSpec.describe 'Scope hardening' do
     it 'does not spend one Scan per item on exists?' do
       expect(widget_class.where(owner_id: 'needle').exists?).to be true
       expect(dynamo_client).to have_received(:scan).at_most(2).times
+    end
+
+    it 'pages a filtered scan without dropping or repeating matches' do
+      12.times { |i| put('widgets', { 'id' => format('m%02d', i), 'ownerId' => 'match' }) }
+
+      expect(collect_pages(widget_class.where(owner_id: 'match'))).to match_array(Array.new(12) { |i| format('m%02d', i) })
+    end
+
+    it 'pages a filtered GSI query without dropping or repeating matches' do
+      items = Class.new(ActiveItem::Base) do
+        self.table_name = "#{TABLE_PREFIX}-items"
+        attr_accessor :status, :color
+
+        indexes('StatusIndex' => { partition_key: 'status', sort_key: 'createdAt' })
+      end.tap { |klass| klass.dynamodb = dynamo_client }
+      20.times do |i|
+        dynamo_client.put_item(table_name: "#{TABLE_PREFIX}-items",
+                               item: { 'id' => format('i%02d', i), 'status' => 'active', 'createdAt' => format('2026-01-%02d', i + 1),
+                                       'color' => i.even? ? 'red' : 'blue' })
+      end
+
+      expected = Array.new(10) { |i| format('i%02d', i * 2) }
+      expect(collect_pages(items.where(status: 'active', color: 'red'))).to match_array(expected)
+    end
+
+    def collect_pages(relation)
+      ids = []
+      cursor = nil
+      loop do
+        page = relation.page(cursor, per_page: 3)
+        ids.concat(page.items.map(&:id))
+        cursor = page.next_cursor
+        break unless page.has_more?
+      end
+      expect(ids.uniq.length).to eq(ids.length)
+      ids
     end
 
     it 'still honors the limit' do

@@ -840,8 +840,10 @@ module ActiveItem
 
       loop do
         params[:exclusive_start_key] = current_cursor if current_cursor
-        # Fetch more than needed to reduce round trips when filter removes items
-        apply_scan_limit!(params, [per_page * 2, 100].min)
+        # Fetch more than needed to reduce round trips when filter removes items.
+        # With a filter, read a full 100 per request so a tiny per_page can't
+        # turn into one request per item.
+        params[:limit] = params[:filter_expression] ? Pagination::MAX_PER_PAGE : [per_page * 2, 100].min
 
         response = resolved_model.dynamodb.query(params)
         items = response.items.map { |item| resolved_model.instantiate(item) }
@@ -866,8 +868,8 @@ module ActiveItem
       end
     end
 
-    # Build a synthetic ExclusiveStartKey from an item when DynamoDB didn't paginate
-    # but we have more items than per_page (overfetch returned everything in one shot).
+    # Build a synthetic ExclusiveStartKey from the last returned item when a
+    # page was trimmed to per_page, so the next page resumes right after it.
     # For GSI queries, DynamoDB requires: table PK + index partition key + index sort key (if any).
     def build_synthetic_cursor(item, _idx_name, index_config)
       pk_dynamo = resolved_model.to_dynamo_key(resolved_model.primary_key.to_s)
@@ -910,8 +912,10 @@ module ActiveItem
 
       loop do
         params[:exclusive_start_key] = current_cursor if current_cursor
-        # Fetch more than needed to reduce round trips when filter removes items
-        apply_scan_limit!(params, [per_page * 2, 100].min)
+        # Fetch more than needed to reduce round trips when filter removes items.
+        # With a filter, read a full 100 per request so a tiny per_page can't
+        # turn into one request per item.
+        params[:limit] = params[:filter_expression] ? Pagination::MAX_PER_PAGE : [per_page * 2, 100].min
 
         response = resolved_model.dynamodb.scan(params)
         items = response.items.map { |item| resolved_model.instantiate(item) }

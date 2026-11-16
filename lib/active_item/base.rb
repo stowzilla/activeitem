@@ -37,7 +37,11 @@ module ActiveItem
     def id=(value)
       value = nil if value.to_s.strip.empty?
       # Re-assigning the same id (forms send it back) is fine; changing it is not.
-      raise ReadonlyAttributeError, "#{self.class.primary_key} can't be changed on a persisted #{self.class.name}" if persisted? && value.to_s != @id.to_s
+      if persisted?
+        return if value.to_s == @id.to_s
+
+        raise ReadonlyAttributeError, "#{self.class.primary_key} can't be changed on a persisted #{self.class.name}"
+      end
 
       @id = value
     end
@@ -173,6 +177,8 @@ module ActiveItem
       def to_dynamo_key(attr_name)
         attr_str = attr_name.to_s
         return dynamo_attribute_map[attr_str] if dynamo_attribute_map.key?(attr_str)
+        # The primary key is stored under its own name (see build_dynamodb_item)
+        return attr_str if attr_str == primary_key.to_s
 
         attr_str.camelize(:lower)
       end
