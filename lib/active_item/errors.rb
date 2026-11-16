@@ -4,6 +4,11 @@ module ActiveItem
   class RecordNotFound < StandardError; end
   class TransactionError < StandardError; end
 
+  # Raised when assigning a different primary key to a persisted record.
+  # Writes are keyed on the id, so a mass-assigned id (record.update(params))
+  # would otherwise redirect the update to another row.
+  class ReadonlyAttributeError < StandardError; end
+
   # Raised by save! when validations fail.
   class RecordInvalid < StandardError
     attr_reader :record

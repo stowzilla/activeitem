@@ -266,22 +266,35 @@ module ActiveItem
               next unless assoc_config
 
               target_class = safe_constantize_model(assoc_config[:class_name])
-              foreign_key = assoc_config[:foreign_key]
+              foreign_key = assoc_config[:foreign_key].to_s
+              owner_key = send(assoc_config[:primary_key])
+
+              # Only children that already belong to this parent can be updated or destroyed
+              find_child = lambda do |child_id|
+                child = target_class.find(child_id)
+                unless child.send(foreign_key) == owner_key
+                  raise ActiveItem::RecordNotFound,
+                        "Couldn't find #{target_class.name} with id=#{child_id} for #{self.class.name} with #{assoc_config[:primary_key]}=#{owner_key}"
+                end
+
+                child
+              end
 
               config[:records].each do |attrs|
                 attrs = attrs.transform_keys(&:to_sym)
 
                 if attrs[:_destroy] && config[:allow_destroy]
-                  if attrs[:id]
-                    record = target_class.find(attrs[:id])
-                    record.destroy!
-                  end
+                  find_child.call(attrs[:id]).destroy! if attrs[:id]
                 elsif attrs[:id]
-                  record = target_class.find(attrs[:id])
-                  record.assign_attributes(attrs.except(:id, :_destroy))
+                  record = find_child.call(attrs[:id])
+                  record.assign_attributes(attrs.except(:id, :_destroy, foreign_key.to_sym))
+                  # Re-assert the owner: an alias writer (e.g. <association>_id=) could have moved it
+                  record.send("#{foreign_key}=", owner_key)
                   record.save!
                 else
-                  target_class.create!(attrs.merge(foreign_key.to_sym => id))
+                  record = target_class.new(attrs.except(:_destroy))
+                  record.send("#{foreign_key}=", owner_key)
+                  record.save!
                 end
               end
             end
@@ -302,12 +315,16 @@ module ActiveItem
       config = self.class._associations[name]
       return Relation.new(Object, conditions: { _empty: true }) unless config
 
-      return Relation.new(nil, preloaded_records: _preloaded_associations[name], class_name: config[:class_name]) if _preloaded_associations.key?(name)
-
       local_key_value = send(config[:primary_key])
       return Relation.new(nil, conditions: { _empty: true }, class_name: config[:class_name]) if local_key_value.nil?
 
       conditions = { config[:foreign_key].to_sym => local_key_value }
+
+      # Preloaded records keep the owner condition, so where/reload/build on them stay scoped
+      if _preloaded_associations.key?(name)
+        return Relation.new(nil, preloaded_records: _preloaded_associations[name], conditions: conditions,
+                                 index_name: config[:index], class_name: config[:class_name], owner: self)
+      end
       relation = Relation.new(nil, conditions: conditions, index_name: config[:index],
                                    class_name: config[:class_name], owner: self)
 
