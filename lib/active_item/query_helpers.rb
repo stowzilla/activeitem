@@ -166,6 +166,10 @@ module ActiveItem
     # @example Case-insensitive search (ilike option)
     #   Container.where(name: 'box', ilike: true)              # Substring match
     #   Container.where(name: 'box', ilike: true, exact: true) # Exact case-insensitive
+    #   Container.where(owner_id: id, name: 'box', ilike: :name) # Only name; owner_id stays exact
+    #
+    #   ilike applies per attribute. ilike: true covers the single string condition in
+    #   that where call and raises ArgumentError if there are several; name them instead.
     #
     # @example Batch find by primary key (automatically uses BatchGetItem)
     #   Customer.where(customer_id: ['cust-1', 'cust-2', 'cust-3'])
@@ -179,7 +183,7 @@ module ActiveItem
 
       # Extract special options
       index_name = conditions.delete(:index) || conditions.delete(:index_name)
-      ilike = conditions.delete(:ilike) || false
+      ilike = conditions.delete(:ilike)
       exact = conditions.delete(:exact) || false
 
       # Optimization: Detect primary key array queries and use batch_find
@@ -200,7 +204,8 @@ module ActiveItem
         end
       end
 
-      Relation.new(self, conditions: conditions, index_name: index_name, ilike: ilike, ilike_exact: exact)
+      Relation.new(self, conditions: conditions, index_name: index_name,
+                         ilike_attributes: Relation.resolve_ilike_attributes(ilike, conditions), ilike_exact: exact)
     end
 
     # Returns a Relation for all records (enables chaining from .all)

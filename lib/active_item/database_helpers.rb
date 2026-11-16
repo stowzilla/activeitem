@@ -42,7 +42,10 @@ module ActiveItem
 
     def scan(limit: nil, filter_expression: nil, expression_attribute_names: nil, expression_attribute_values: nil, projection_expression: nil)
       params = { table_name: table_name }
-      params[:limit] = limit if limit
+      # DynamoDB applies Limit before the filter, so with a filter it caps items
+      # *read* per page, not matches; a small limit would then cost one request
+      # per item in the table. Only send it when there is no filter.
+      params[:limit] = limit if limit && !filter_expression
       params[:filter_expression] = filter_expression if filter_expression
       params[:expression_attribute_names] = expression_attribute_names if expression_attribute_names
       params[:expression_attribute_values] = expression_attribute_values if expression_attribute_values
@@ -69,7 +72,7 @@ module ActiveItem
         break if limit && items.length >= limit
       end
 
-      items
+      limit ? items.first(limit) : items
     rescue Aws::DynamoDB::Errors::AccessDeniedException => e
       raise_access_denied('Scan', e)
     end

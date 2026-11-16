@@ -35,7 +35,15 @@ module ActiveItem
     attr_accessor :created_at, :updated_at, :dbrecord
 
     def id=(value)
-      @id = (value.to_s.strip.empty? ? nil : value)
+      value = nil if value.to_s.strip.empty?
+      # Re-assigning the same id (forms send it back) is fine; changing it is not.
+      if persisted?
+        return if value.to_s == @id.to_s
+
+        raise ReadonlyAttributeError, "#{self.class.primary_key} can't be changed on a persisted #{self.class.name}"
+      end
+
+      @id = value
     end
 
     before_create :generate_primary_key
@@ -169,6 +177,8 @@ module ActiveItem
       def to_dynamo_key(attr_name)
         attr_str = attr_name.to_s
         return dynamo_attribute_map[attr_str] if dynamo_attribute_map.key?(attr_str)
+        # The primary key is stored under its own name (see build_dynamodb_item)
+        return attr_str if attr_str == primary_key.to_s
 
         attr_str.camelize(:lower)
       end
@@ -592,7 +602,11 @@ module ActiveItem
 
       result = run_callbacks :save do
         if new_record?
-          run_callbacks(:create) { txn.put(self) }
+          # Same guard as perform_create: a create must not replace an existing row
+          run_callbacks(:create) do
+            txn.put(self, condition: 'attribute_not_exists(#pk)',
+                          expression_attribute_names: { '#pk' => self.class.primary_key.to_s })
+          end
         else
           run_callbacks(:update) { txn.update(self) }
         end

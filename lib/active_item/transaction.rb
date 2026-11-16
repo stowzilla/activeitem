@@ -46,7 +46,9 @@ module ActiveItem
       !current.nil?
     end
 
-    def put(record, condition: nil)
+    # @param condition [String, nil] ConditionExpression for the put
+    # @param expression_attribute_names [Hash, nil] Name placeholders used by +condition+
+    def put(record, condition: nil, expression_attribute_names: nil)
       record.instance_variable_set(:@id, SecureRandom.uuid) unless record.id
       pk = record.class.primary_key
       record.instance_variable_set(:"@#{pk}", record.id) if pk != 'id'
@@ -62,6 +64,7 @@ module ActiveItem
 
       op = { put: { table_name: record.class.table_name, item: item } }
       op[:put][:condition_expression] = condition if condition
+      op[:put][:expression_attribute_names] = expression_attribute_names if expression_attribute_names
 
       @operations << { op: op, record: record, type: :put }
     end

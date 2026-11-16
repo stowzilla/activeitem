@@ -10,11 +10,40 @@ module ActiveItem
     include Enumerable
     include ModelLoader
 
-    attr_reader :model, :conditions, :index_name, :limit_value, :not_conditions, :ilike, :ilike_exact, :class_name, :owner, :includes_associations,
-                :order_direction, :select_attributes
+    attr_reader :model, :conditions, :index_name, :limit_value, :not_conditions, :ilike_attributes, :ilike_exact, :class_name, :owner,
+                :includes_associations, :order_direction, :select_attributes
 
-    def initialize(model, conditions: {}, index_name: nil, limit_value: nil, not_conditions: {}, ilike: false, ilike_exact: false, class_name: nil,
-                   owner: nil, preloaded_records: nil, includes_associations: [], order_direction: nil, select_attributes: nil)
+    # Resolve a where call's `ilike:` option into the attribute names it applies to.
+    #
+    # ilike is per attribute so it never loosens a scope condition passed
+    # alongside it (where(tenant_id: t, name: q, ilike: true) must keep
+    # tenant_id exact).
+    #
+    #   ilike: :name / ilike: [:name, :sku]  -> those attributes
+    #   ilike: true                          -> the one String condition in this call;
+    #                                           raises if there is more than one
+    #   ilike: nil / false                   -> none
+    def self.resolve_ilike_attributes(option, conditions)
+      return [] if option.nil? || option == false
+
+      if option == true
+        names = conditions.select { |_, v| v.is_a?(String) }.keys.map(&:to_sym)
+        if names.size > 1
+          raise ArgumentError, "ilike: true is ambiguous with several string conditions (#{names.join(', ')}); " \
+                               "name the attribute instead, e.g. ilike: :#{names.last}"
+        end
+        return names
+      end
+
+      names = Array(option).map(&:to_sym)
+      unknown = names - conditions.keys.map(&:to_sym)
+      raise ArgumentError, "ilike names #{unknown.join(', ')}, which #{unknown.size == 1 ? 'is' : 'are'} not a condition in this where" if unknown.any?
+
+      names
+    end
+
+    def initialize(model, conditions: {}, index_name: nil, limit_value: nil, not_conditions: {}, ilike_attributes: [], ilike_exact: false,
+                   class_name: nil, owner: nil, preloaded_records: nil, includes_associations: [], order_direction: nil, select_attributes: nil)
       @model = model
       @class_name = class_name  # For lazy loading
       @owner = owner            # The object that owns this association
@@ -22,13 +51,18 @@ module ActiveItem
       @index_name = index_name
       @limit_value = limit_value
       @not_conditions = not_conditions.dup
-      @ilike = ilike # Use case-insensitive contains() for string conditions
+      @ilike_attributes = ilike_attributes # Attributes matched case-insensitively (substring unless ilike_exact)
       @ilike_exact = ilike_exact # Require exact case-insensitive match (Ruby-side filter)
       @loaded = preloaded_records ? true : false
       @records = preloaded_records
       @includes_associations = includes_associations
       @order_direction = order_direction # :asc or :desc for DynamoDB ScanIndexForward
       @select_attributes = select_attributes # Projection expression attributes
+    end
+
+    # Whether any condition is matched case-insensitively.
+    def ilike
+      ilike_attributes.any?
     end
 
     # Whether the relation's records have been loaded from DynamoDB.
@@ -75,10 +109,13 @@ module ActiveItem
       new_ilike = new_conditions.delete(:ilike)
       new_exact = new_conditions.delete(:exact)
 
+      # A condition re-specified here drops any earlier ilike on that attribute
+      kept_ilike = new_ilike == false ? [] : ilike_attributes - new_conditions.keys.map(&:to_sym)
+
       spawn(
         conditions: conditions.merge(new_conditions),
         index_name: new_index || index_name,
-        ilike: new_ilike.nil? ? ilike : new_ilike,
+        ilike_attributes: kept_ilike | Relation.resolve_ilike_attributes(new_ilike, new_conditions),
         ilike_exact: new_exact.nil? ? ilike_exact : new_exact
       )
     end
@@ -331,15 +368,32 @@ module ActiveItem
         # Delegate to Enumerable#find when block is given (Rails behavior)
         to_a.find(&)
       elsif id
+        not_found = "Couldn't find #{resolved_model.name} with id=#{id}"
+        raise ActiveItem::RecordNotFound, not_found if conditions[:_empty]
+
+        # A loaded relation (preloaded association, has_many :through,
+        # where(id: [...])) is its own scope: look in the loaded records.
+        if @loaded
+          record = @records.find { |r| r.id.to_s == id.to_s }
+          raise ActiveItem::RecordNotFound, not_found unless record
+
+          return record
+        end
+
         # Use direct GetItem instead of scanning — O(1) vs O(n)
         record = resolved_model.find(id)
 
-        # When called on an association (has conditions), validate scope
-        # This ensures @project.epics.find(id) only returns epics belonging to @project
-        if conditions.any? && !conditions[:_empty]
-          foreign_key, expected_value = conditions.first
-          actual_value = record.send(foreign_key)
-          raise ActiveItem::RecordNotFound, "Couldn't find #{resolved_model.name} with id=#{id}" unless actual_value == expected_value
+        # Every condition and not-condition must hold, so @project.epics.find(id)
+        # only returns epics belonging to @project. Conditions we can't evaluate
+        # in Ruby (nested paths, ranges, ...) are checked by DynamoDB instead.
+        case scope_verdict(record)
+        when false
+          raise ActiveItem::RecordNotFound, not_found
+        when nil
+          pk = resolved_model.primary_key.to_sym
+          record = spawn(conditions: conditions.merge(pk => record.id), limit_value: nil, select_attributes: nil,
+                         includes_associations: []).to_a.first
+          raise ActiveItem::RecordNotFound, not_found unless record
         end
 
         preload_associations_for_records([record]) if includes_associations.any?
@@ -477,7 +531,7 @@ module ActiveItem
         parts = []
         parts << "conditions=#{conditions.inspect}" if conditions.any?
         parts << "not_conditions=#{not_conditions.inspect}" if not_conditions.any?
-        parts << 'ilike=true' if ilike
+        parts << "ilike=#{ilike_attributes.inspect}" if ilike
         parts << 'exact=true' if ilike_exact
         "#<#{self.class.name} (not loaded) #{parts.join(' ')}>"
       end
@@ -507,7 +561,7 @@ module ActiveItem
         index_name: overrides.fetch(:index_name, index_name),
         limit_value: overrides.fetch(:limit_value, limit_value),
         not_conditions: overrides.fetch(:not_conditions, not_conditions),
-        ilike: overrides.fetch(:ilike, ilike),
+        ilike_attributes: overrides.fetch(:ilike_attributes, ilike_attributes),
         ilike_exact: overrides.fetch(:ilike_exact, ilike_exact),
         class_name: overrides.fetch(:class_name, class_name),
         owner: overrides.fetch(:owner, owner),
@@ -527,13 +581,94 @@ module ActiveItem
       @resolved_model ||= safe_constantize_model(@class_name)
     end
 
+    # Whether a fetched record satisfies every condition and not-condition of
+    # this relation. Returns true/false, or nil when some condition can't be
+    # evaluated in Ruby with the same semantics DynamoDB would apply.
+    def scope_verdict(record)
+      normalize_conditions(conditions).each do |attr, expected|
+        result = condition_verdict(record, attr, expected, ilike: ilike_attribute?(attr))
+        return result unless result == true
+      end
+
+      normalize_conditions(not_conditions).each do |attr, expected|
+        # DynamoDB's <> / NOT IN on a missing attribute: let it decide
+        return nil if !expected.nil? && read_condition_attribute(record, attr).nil?
+
+        result = condition_verdict(record, attr, expected, ilike: false)
+        return nil if result.nil?
+        return false if result
+      end
+
+      true
+    end
+
+    # Ruby mirror of build_condition_expression for the value shapes whose
+    # semantics are unambiguous. Returns nil for anything else.
+    def condition_verdict(record, attr, expected, ilike:)
+      attr = attr.to_s
+      if expected.is_a?(ActiveItem::Base)
+        expected = expected.send(expected.class.primary_key)
+        attr = "#{attr}_id" unless attr.end_with?('_id')
+      end
+      return nil if attr.include?('.') || expected.is_a?(Hash) || expected.is_a?(Range)
+      return nil unless readable_condition_attribute?(record, attr)
+
+      actual = read_condition_attribute(record, attr)
+
+      if expected.nil?
+        actual.nil?
+      elsif ilike && expected.is_a?(String)
+        return false unless actual.is_a?(String)
+
+        ilike_exact ? actual.downcase == expected.downcase : actual.downcase.include?(expected.downcase)
+      elsif expected.is_a?(ActiveItem::BeginsWith)
+        actual.is_a?(String) && actual.start_with?(expected.prefix)
+      elsif expected.is_a?(Array)
+        return nil unless expected.all? { |v| scalar_condition_value?(v) }
+
+        expected.include?(actual)
+      elsif scalar_condition_value?(expected)
+        actual == expected
+      end
+    end
+
+    def scalar_condition_value?(value)
+      value.is_a?(String) || value.is_a?(Numeric) || value == true || value == false
+    end
+
+    def readable_condition_attribute?(record, attr)
+      attr == 'id' || attr == record.class.primary_key.to_s || record.class.attribute_names.include?(attr)
+    end
+
+    def read_condition_attribute(record, attr)
+      attr = attr.to_s
+      return record.id if attr == 'id' || attr == record.class.primary_key.to_s
+
+      record.instance_variable_get("@#{attr}")
+    end
+
+    # Set DynamoDB's Limit only when there is no filter. Limit caps the items
+    # *read* per page, before the filter runs, so a small limit with a
+    # selective filter turns into one request per item in the table/partition.
+    # Callers keep counting matches themselves and stop once they have enough.
+    def apply_scan_limit!(params, value)
+      params[:limit] = value if value && !params[:filter_expression]
+    end
+
+    # Whether a (normalized) condition attribute is matched case-insensitively
+    def ilike_attribute?(attr)
+      ilike_attributes.any? do |name|
+        name == attr.to_sym || (resolve_association_foreign_key(name.to_s) || name.to_s) == attr.to_s
+      end
+    end
+
     # Apply Ruby-side filter for case-insensitive matching
-    # Called after DynamoDB query returns results when ilike is true
+    # Called after DynamoDB query returns results when ilike is set
     def apply_ilike_filter(records)
       return records unless ilike
 
-      # Get the string conditions that need case-insensitive matching
-      string_conditions = conditions.select { |_, v| v.is_a?(String) }
+      # Only the string conditions marked ilike get case-insensitive matching
+      string_conditions = conditions.select { |k, v| v.is_a?(String) && ilike_attributes.include?(k.to_sym) }
       return records if string_conditions.empty?
 
       records.select do |record|
@@ -680,7 +815,7 @@ module ActiveItem
 
       if remaining_conditions.any?
         remaining_conditions.each_with_index do |(attr, val), idx|
-          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
           filter_parts << expr
           params[:expression_attribute_names].merge!(names)
           params[:expression_attribute_values].merge!(values) if values.any?
@@ -705,8 +840,10 @@ module ActiveItem
 
       loop do
         params[:exclusive_start_key] = current_cursor if current_cursor
-        # Fetch more than needed to reduce round trips when filter removes items
-        params[:limit] = [per_page * 2, 100].min
+        # Fetch more than needed to reduce round trips when filter removes items.
+        # With a filter, read a full 100 per request so a tiny per_page can't
+        # turn into one request per item.
+        params[:limit] = params[:filter_expression] ? Pagination::MAX_PER_PAGE : [per_page * 2, 100].min
 
         response = resolved_model.dynamodb.query(params)
         items = response.items.map { |item| resolved_model.instantiate(item) }
@@ -722,15 +859,17 @@ module ActiveItem
 
       # Trim to requested page size and determine next cursor
       if collected_items.length > per_page
-        next_cursor = last_evaluated_key || build_synthetic_cursor(collected_items[per_page - 1], idx_name, index_config)
+        # Resume right after the last returned item. last_evaluated_key points past
+        # the whole fetched page and would skip the trimmed items.
+        next_cursor = build_synthetic_cursor(collected_items[per_page - 1], idx_name, index_config)
         [collected_items.take(per_page), encode_cursor(next_cursor)]
       else
         [collected_items, encode_cursor(last_evaluated_key)]
       end
     end
 
-    # Build a synthetic ExclusiveStartKey from an item when DynamoDB didn't paginate
-    # but we have more items than per_page (overfetch returned everything in one shot).
+    # Build a synthetic ExclusiveStartKey from the last returned item when a
+    # page was trimmed to per_page, so the next page resumes right after it.
     # For GSI queries, DynamoDB requires: table PK + index partition key + index sort key (if any).
     def build_synthetic_cursor(item, _idx_name, index_config)
       pk_dynamo = resolved_model.to_dynamo_key(resolved_model.primary_key.to_s)
@@ -748,7 +887,7 @@ module ActiveItem
       filter_names = {}
 
       normalized_conditions.each_with_index do |(attr, val), idx|
-        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
         filter_parts << expr
         filter_names.merge!(names)
         filter_values.merge!(values) if values.any?
@@ -773,8 +912,10 @@ module ActiveItem
 
       loop do
         params[:exclusive_start_key] = current_cursor if current_cursor
-        # Fetch more than needed to reduce round trips when filter removes items
-        params[:limit] = [per_page * 2, 100].min
+        # Fetch more than needed to reduce round trips when filter removes items.
+        # With a filter, read a full 100 per request so a tiny per_page can't
+        # turn into one request per item.
+        params[:limit] = params[:filter_expression] ? Pagination::MAX_PER_PAGE : [per_page * 2, 100].min
 
         response = resolved_model.dynamodb.scan(params)
         items = response.items.map { |item| resolved_model.instantiate(item) }
@@ -851,7 +992,7 @@ module ActiveItem
                    build_count_scan_params(normalized_conditions)
                  end
         params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
-        params[:limit] = limit_value if limit_value
+        apply_scan_limit!(params, limit_value)
 
         response = if effective_index && normalized_conditions.any?
                      resolved_model.dynamodb.query(params)
@@ -948,7 +1089,7 @@ module ActiveItem
       loop do
         params = build_count_scan_params(normalized_conditions)
         params[:exclusive_start_key] = exclusive_start_key if exclusive_start_key
-        params[:limit] = limit_value if limit_value
+        apply_scan_limit!(params, limit_value)
 
         response = resolved_model.dynamodb.scan(params)
         total += response.count
@@ -1027,7 +1168,7 @@ module ActiveItem
 
       if remaining_conditions.any?
         remaining_conditions.each_with_index do |(attr, val), idx|
-          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
           filter_parts << expr
           params[:expression_attribute_names].merge!(names)
           params[:expression_attribute_values].merge!(values) if values.any?
@@ -1044,7 +1185,7 @@ module ActiveItem
       end
 
       params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
-      params[:limit] = limit_value if limit_value
+      apply_scan_limit!(params, limit_value)
       params[:scan_index_forward] = (order_direction != :desc) unless order_direction.nil?
       apply_projection_expression!(params)
       params
@@ -1057,7 +1198,7 @@ module ActiveItem
       filter_values = {}
 
       normalized_conditions.each_with_index do |(attr, val), idx|
-        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
         filter_parts << expr
         filter_names.merge!(names)
         filter_values.merge!(values) if values.any?
@@ -1078,7 +1219,7 @@ module ActiveItem
       params[:expression_attribute_names] = filter_names if filter_names.any?
       params[:expression_attribute_values] = filter_values if filter_values.any?
       params[:projection_expression] = proj_expr if proj_expr
-      params[:limit] = limit_value if limit_value
+      apply_scan_limit!(params, limit_value)
       params
     end
 
@@ -1188,7 +1329,7 @@ module ActiveItem
 
       if remaining_conditions.any?
         remaining_conditions.each_with_index do |(attr, val), idx|
-          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+          expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
           filter_parts << expr
           params[:expression_attribute_names].merge!(names)
           params[:expression_attribute_values].merge!(values) if values.any?
@@ -1206,7 +1347,7 @@ module ActiveItem
       end
 
       params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
-      params[:limit] = limit_value if limit_value
+      apply_scan_limit!(params, limit_value)
       params[:scan_index_forward] = (order_direction != :desc) unless order_direction.nil?
 
       # Add projection expression if select() was used
@@ -1225,7 +1366,7 @@ module ActiveItem
         break if limit_value && all_items.length >= limit_value
       end
 
-      all_items
+      limit_value ? all_items.first(limit_value) : all_items
     end
 
     # Fan-out parallel queries when partition key is an Array.
@@ -1254,7 +1395,7 @@ module ActiveItem
 
             apply_sort_key_to_params!(params, sort_key, remaining_conditions)
             params[:filter_expression] = filter_parts.join(' AND ') if filter_parts.any?
-            params[:limit] = limit_value if limit_value
+            apply_scan_limit!(params, limit_value)
             params[:scan_index_forward] = (order_direction != :desc) unless order_direction.nil?
             apply_projection_expression!(params)
 
@@ -1375,7 +1516,7 @@ module ActiveItem
       end
 
       non_sort_conditions.each_with_index do |(attr, val), idx|
-        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
         filter_parts << expr
         filter_names.merge!(names)
         filter_values.merge!(values) if values.any?
@@ -1503,7 +1644,7 @@ module ActiveItem
       filter_names = {}
 
       normalized_conditions.each_with_index do |(attr, val), idx|
-        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike)
+        expr, names, values = resolved_model.send(:build_condition_expression, attr, val, idx, ilike: ilike_attribute?(attr))
         filter_parts << expr
         filter_names.merge!(names)
         filter_values.merge!(values) if values.any?

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.26
+
+Scope hardening from the Posh Nosh security review (Fizzy #2004). Several of these change behavior; see **Changed**.
+
+### Fixed
+
+- **`accepts_nested_attributes_for` could update or destroy any child by id.** Nested rows were looked up with an unscoped `find`, so a parent could edit or `_destroy` another parent's child. A row whose foreign key isn't this parent's now raises `ActiveItem::RecordNotFound`, and the foreign key can no longer be reassigned through nested attributes (it is stripped and re-asserted on update and create).
+- **A mass-assigned `id` redirected an update to another row.** `record.update(params)` with an `id` in the hash wrote the changes onto that other row. Changing the primary key of a persisted record now raises `ActiveItem::ReadonlyAttributeError`; assigning the same id back (form round-trips) is still allowed.
+- **`relation.find(id)` only checked the first `where` condition.** Every condition and `where.not` condition is now checked. Conditions that can't be evaluated in Ruby with DynamoDB's semantics (ranges, nested paths) are checked by a filtered query instead. Preloaded (`includes`) and `has_many :through` relations, and `where(id: [...])`, find only among their loaded records. `none.find` and a nil-key association's `find` raise instead of returning any row. Preloaded `has_many` relations also keep the owner condition, so `where`/`exists?`/`reload` on them stay scoped.
+- **`ilike: true` loosened every string condition in the relation.** `where(tenant_id: t).where(name: q, ilike: true)` substring-matched `tenant_id` too. ilike now applies per attribute.
+- **Creating inside `Model.transaction` silently replaced an existing row.** The transactional put now carries the same `attribute_not_exists` condition as a normal create.
+- **Filtered lookups on unindexed attributes made one Scan per item.** `find_by`, `exists?`, `limit`, `count` and uniqueness validation sent the wanted result count as DynamoDB's `Limit`, which applies *before* the filter. `Limit` is now only sent when there is no filter (scan, query, count, fan-out, pagination and `explain`); results are still trimmed to the limit.
+- Paginated GSI queries could skip items when a page was trimmed; the next cursor now always resumes after the last returned item.
+
+### Changed
+
+- `where(..., ilike: :name)` / `ilike: [:name, :sku]` names the attributes to match case-insensitively. `ilike: true` still works when that `where` call has exactly one string condition, and raises `ArgumentError` when it has several. `Relation#ilike` is now a boolean; the attribute list is `Relation#ilike_attributes`.
+- A transactional create on an existing key now fails the whole transaction with `ActiveItem::TransactionError` at commit, instead of overwriting. Explicit `txn.put(record)` is unchanged (still an upsert); it now also accepts `expression_attribute_names:` alongside `condition:`.
+- Nested attributes naming another parent's child raise `ActiveItem::RecordNotFound` from `save`.
+
 ## 0.0.25
 
 ### Fixed
