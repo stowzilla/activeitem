@@ -18,6 +18,7 @@ module ActiveItem
     include Associations
     include Embeddable
     include Logging
+    include Counters
 
     define_model_callbacks :save, :create, :update, :destroy, :initialize, :validation
 

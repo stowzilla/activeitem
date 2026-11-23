@@ -87,6 +87,36 @@ lowercased characters and whose sort key is the whole lowercased value, then
 `begins_with` on the sort key. `begins_with` on a non-key attribute works too, but
 it's a filter, so DynamoDB still reads every item in the query or scan.
 
+### Counters
+
+`save` SETs the value the record read, so two requests saving `opens + 1` at
+once lose one. Counters use one UpdateItem with DynamoDB's `ADD` instead, which
+adds to whatever is stored:
+
+```ruby
+ShareLink.update_counters(id, opens: 1, visitors: 1)           # no read; creates the row if missing
+ShareLink.update_counters(id, { opens: 1 }, if_exists: true)   # nil instead of creating a row
+ShareLink.update_counters(id, { opens: 1 }, set: { last_opened_at: t }, set_if_missing: { first_opened_at: t })
+
+link.increment!(:opens)                                         # refreshed from the stored row
+link.increment!(:opens, :visitors, by: 2, set: { last_opened_at: t })
+link.decrement!(:stock)                                         # negative amounts work too
+```
+
+- `update_counters` returns the row as stored after the update, or `nil` when
+  `if_exists: true` and the row is missing. Without `if_exists` a missing row is
+  created holding just the counters (that's how `ADD` works).
+- `increment!` / `decrement!` only update a row that still exists. They return
+  the record, or `false` if the row was deleted. The touched attributes are
+  refreshed and left clean; other unsaved changes are kept.
+- `set:` SETs attributes in the same write (`nil` removes one), and
+  `set_if_missing:` SETs only attributes that are absent (`if_not_exists`).
+- Every write sets `updatedAt`, and sets `createdAt` and `_recent_pk` if missing.
+- Declared attributes map through `to_dynamo_key` / `dynamo_attribute_map`. Class-level
+  names that aren't declared attributes are used verbatim, e.g.
+  `update_counters(day, 'n:page:/pricing' => 1)`.
+- Counters don't run validations or callbacks, and aren't enrolled in `transaction`.
+
 ### Associations
 
 ```ruby
