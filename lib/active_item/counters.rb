@@ -26,19 +26,20 @@ module ActiveItem
       #
       # Declared attributes are mapped through `to_dynamo_key`; any other name
       # (e.g. "n:page:/pricing") is used as the DynamoDB attribute name verbatim.
-      # `updatedAt` is always set; `createdAt` and `_recent_pk` are set only if
-      # missing.
+      # `updatedAt` is set, and `createdAt` and `_recent_pk` are set only if
+      # missing, unless `touch: false`.
       #
       # @param set [Hash] attributes to SET alongside the counters (nil REMOVEs)
       # @param set_if_missing [Hash] attributes to SET only if absent (if_not_exists)
       # @param if_exists [Boolean] condition on the row existing instead of creating it
+      # @param touch [Boolean] false leaves updatedAt, createdAt and _recent_pk alone
       # @return [ActiveItem::Base, nil] the row as stored after the update, or nil
       #   when `if_exists: true` and there is no such row
-      def update_counters(id, counters = nil, set: {}, set_if_missing: {}, if_exists: false, **more_counters)
+      def update_counters(id, counters = nil, set: {}, set_if_missing: {}, if_exists: false, touch: true, **more_counters)
         raise_embedded_error!(:update_counters) if respond_to?(:embedded?) && embedded?
 
         counters = (counters || {}).merge(more_counters)
-        item = counter_update_item(id, counters, set: set, set_if_missing: set_if_missing, if_exists: if_exists)
+        item = counter_update_item(id, counters, set: set, set_if_missing: set_if_missing, if_exists: if_exists, touch: touch)
         item && instantiate(item)
       end
 
@@ -46,11 +47,11 @@ module ActiveItem
 
       # Runs the UpdateItem and returns the raw ALL_NEW item, or nil when the
       # `if_exists` condition failed.
-      def counter_update_item(id, counters, set:, set_if_missing:, if_exists:)
+      def counter_update_item(id, counters, set:, set_if_missing:, if_exists:, touch: true)
         raise ArgumentError, 'update_counters needs an id' if id.nil? || id.to_s.empty?
         raise ArgumentError, 'update_counters needs at least one counter' if counters.empty?
 
-        dynamodb.update_item(counter_update_params(id, counters, set, set_if_missing, if_exists)).attributes
+        dynamodb.update_item(counter_update_params(id, counters, set, set_if_missing, if_exists, touch)).attributes
       rescue Aws::DynamoDB::Errors::ConditionalCheckFailedException
         raise unless if_exists
 
@@ -59,9 +60,9 @@ module ActiveItem
         raise_access_denied('UpdateItem', e)
       end
 
-      def counter_update_params(id, counters, set, set_if_missing, if_exists)
+      def counter_update_params(id, counters, set, set_if_missing, if_exists, touch)
         names = {}
-        values = { ':now' => Time.now.utc.iso8601 }
+        values = {}
         sets = []
         removes = []
         adds = []
@@ -77,7 +78,7 @@ module ActiveItem
         end
 
         claimed[primary_key.to_s] = true
-        timestamps = { 'updatedAt' => '#updatedAt', 'createdAt' => '#createdAt', '_recent_pk' => '#recentPk' }
+        timestamps = touch ? { 'updatedAt' => '#updatedAt', 'createdAt' => '#createdAt', '_recent_pk' => '#recentPk' } : {}
         timestamps.each_key { |key| claimed[key] = true }
 
         counters.each do |name, amount|
@@ -106,12 +107,16 @@ module ActiveItem
           sets << "#{placeholder} = if_not_exists(#{placeholder}, :#{placeholder[1..]})"
         end
 
-        timestamps.each { |key, placeholder| names[placeholder] = key }
-        values[':recentPk'] = 'ALL'
-        sets.unshift('#updatedAt = :now', '#createdAt = if_not_exists(#createdAt, :now)',
-                     '#recentPk = if_not_exists(#recentPk, :recentPk)')
+        if touch
+          timestamps.each { |key, placeholder| names[placeholder] = key }
+          values[':now'] = Time.now.utc.iso8601
+          values[':recentPk'] = 'ALL'
+          sets.unshift('#updatedAt = :now', '#createdAt = if_not_exists(#createdAt, :now)',
+                       '#recentPk = if_not_exists(#recentPk, :recentPk)')
+        end
 
-        expression = "SET #{sets.join(', ')} ADD #{adds.join(', ')}"
+        expression = "ADD #{adds.join(', ')}"
+        expression = "SET #{sets.join(', ')} #{expression}" if sets.any?
         expression += " REMOVE #{removes.join(', ')}" if removes.any?
 
         params = {

@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Atomic counters: `Model.update_counters`, `#increment!`, `#decrement!`** (Fizzy #2075). `save` SETs the value the record read, so concurrent `opens + 1` saves lost counts and apps hand-wrote `update_item` with `ADD`. These send one UpdateItem that ADDs to the stored value, map names through `to_dynamo_key`, always set `updatedAt` (and `createdAt` / `_recent_pk` if missing), and rebuild the record from `ALL_NEW`.
+- **Atomic counters: `Model.update_counters`, `#increment!`, `#decrement!`** (Fizzy #2075). `save` SETs the value the record read, so concurrent `opens + 1` saves lost counts and apps hand-wrote `update_item` with `ADD`. These send one UpdateItem that ADDs to the stored value, map names through `to_dynamo_key`, set `updatedAt` (and `createdAt` / `_recent_pk` if missing; `touch: false` skips them), and rebuild the record from `ALL_NEW`.
 
   ```ruby
   ShareLink.update_counters(id, opens: 1, visitors: 1)          # upserts, like ADD

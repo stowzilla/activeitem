@@ -68,6 +68,12 @@ RSpec.describe ActiveItem::Counters do
       expect(stored('l1')['createdAt']).to eq('2020-01-01T00:00:00Z')
     end
 
+    it 'leaves the timestamps out with touch: false' do
+      link_class.update_counters('day', { 'n:visits' => 1 }, set_if_missing: { name: 'd' }, touch: false)
+
+      expect(stored('day').keys).to contain_exactly('id', 'n:visits', 'name')
+    end
+
     it 'accepts the counters as a positional hash' do
       link_class.update_counters('l1', { opens: 1 })
       expect(stored('l1')['opens']).to eq(1)

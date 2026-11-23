@@ -112,6 +112,7 @@ link.decrement!(:stock)                                         # negative amoun
 - `set:` SETs attributes in the same write (`nil` removes one), and
   `set_if_missing:` SETs only attributes that are absent (`if_not_exists`).
 - Every write sets `updatedAt`, and sets `createdAt` and `_recent_pk` if missing.
+  `update_counters(..., touch: false)` leaves all three out.
 - Declared attributes map through `to_dynamo_key` / `dynamo_attribute_map`. Class-level
   names that aren't declared attributes are used verbatim, e.g.
   `update_counters(day, 'n:page:/pricing' => 1)`.
