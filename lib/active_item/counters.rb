@@ -36,8 +36,6 @@ module ActiveItem
       # @return [ActiveItem::Base, nil] the row as stored after the update, or nil
       #   when `if_exists: true` and there is no such row
       def update_counters(id, counters = nil, set: {}, set_if_missing: {}, if_exists: false, touch: true, **more_counters)
-        raise_embedded_error!(:update_counters) if respond_to?(:embedded?) && embedded?
-
         counters = (counters || {}).merge(more_counters)
         item = counter_update_item(id, counters, set: set, set_if_missing: set_if_missing, if_exists: if_exists, touch: touch)
         item && instantiate(item)
@@ -48,6 +46,7 @@ module ActiveItem
       # Runs the UpdateItem and returns the raw ALL_NEW item, or nil when the
       # `if_exists` condition failed.
       def counter_update_item(id, counters, set:, set_if_missing:, if_exists:, touch: true)
+        raise_embedded_error!(:update_counters) if respond_to?(:embedded?) && embedded?
         raise ArgumentError, 'update_counters needs an id' if id.nil? || id.to_s.empty?
         raise ArgumentError, 'update_counters needs at least one counter' if counters.empty?
 
