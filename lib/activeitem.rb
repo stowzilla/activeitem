@@ -15,6 +15,7 @@ require_relative 'active_item/composed_of'
 require_relative 'active_item/validations'
 require_relative 'active_item/transaction'
 require_relative 'active_item/pagination'
+require_relative 'active_item/counters'
 require_relative 'active_item/base'
 
 # ActiveRecord-style ORM for Amazon DynamoDB.

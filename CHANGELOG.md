@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.27
+
+### Added
+
+- **Atomic counters: `Model.update_counters`, `#increment!`, `#decrement!`** (Fizzy #2075). `save` SETs the value the record read, so concurrent `opens + 1` saves lost counts and apps hand-wrote `update_item` with `ADD`. These send one UpdateItem that ADDs to the stored value, map names through `to_dynamo_key`, set `updatedAt` (and `createdAt` / `_recent_pk` if missing; `touch: false` skips them), and rebuild the record from `ALL_NEW`.
+
+  ```ruby
+  ShareLink.update_counters(id, opens: 1, visitors: 1)          # upserts, like ADD
+  ShareLink.update_counters(id, { opens: 1 }, if_exists: true)  # nil when the row is missing
+  link.increment!(:opens, :visitors, set: { last_opened_at: t }, set_if_missing: { first_opened_at: t })
+  ```
+
+  `increment!` only touches a row that still exists (returns `false` otherwise), and leaves the touched attributes clean. Undeclared names passed to `update_counters` are used verbatim as DynamoDB attribute names. AccessDenied is wrapped in `ActiveItem::AccessDeniedError`.
+
 ## 0.0.26
 
 Scope hardening from the Posh Nosh security review (Fizzy #2004). Several of these change behavior; see **Changed**.
